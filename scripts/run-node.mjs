@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
@@ -566,6 +567,81 @@ const getInterruptedSpawnExitCode = (res) => {
   return null;
 };
 
+const isGatewayCommand = (args) => args[0] === "gateway";
+const isGatewayStartCommand = (args) =>
+  isGatewayCommand(args) && (args[1] === "run" || args[1] === "start");
+const isGatewayStopCommand = (args) => isGatewayCommand(args) && args[1] === "stop";
+
+const resolveGatewayPortForGuard = (deps) => {
+  const candidates = [deps.env.OPENCLAW_GATEWAY_PORT, deps.env.CLAWDBOT_GATEWAY_PORT];
+  for (const raw of candidates) {
+    const trimmed = typeof raw === "string" ? raw.trim() : "";
+    if (!trimmed) {
+      continue;
+    }
+    const parsed = Number(trimmed);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.floor(parsed);
+    }
+  }
+  return 18789;
+};
+
+const isLocalPortListening = (port) =>
+  new Promise((resolve) => {
+    const socket = net.connect({ port, host: "127.0.0.1" });
+    const done = (value) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(value);
+    };
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+    socket.setTimeout(200, () => done(false));
+    socket.unref?.();
+  });
+
+const resolveBuildRequirementConsideringGateway = async (deps) => {
+  const buildRequirement = resolveBuildRequirement(deps);
+  if (!buildRequirement.shouldBuild) {
+    return buildRequirement;
+  }
+  if (buildRequirement.reason === "force_build") {
+    return buildRequirement;
+  }
+  if (deps.env.OPENCLAW_RUNNER_ALLOW_BUILD_WHILE_GATEWAY_RUNNING === "1") {
+    return buildRequirement;
+  }
+  if (isGatewayStartCommand(deps.args)) {
+    return buildRequirement;
+  }
+  if (isGatewayStopCommand(deps.args)) {
+    return { ...buildRequirement, shouldBuild: false };
+  }
+
+  const port = resolveGatewayPortForGuard(deps);
+  const gatewayRunning = await deps.isLocalPortListening(port);
+  if (!gatewayRunning) {
+    return buildRequirement;
+  }
+
+  if (statMtime(deps.distEntry, deps.fs) == null) {
+    deps.stderr.write(
+      `[openclaw] dist is missing, but a gateway appears to be listening on 127.0.0.1:${port}.\n` +
+        `[openclaw] Refusing to auto-build because rewriting dist while the gateway is running can break live imports.\n` +
+        `[openclaw] Stop the gateway, run pnpm build:clean, then retry.\n` +
+        `[openclaw] Override (unsafe): set OPENCLAW_RUNNER_ALLOW_BUILD_WHILE_GATEWAY_RUNNING=1.\n`,
+    );
+    return { ...buildRequirement, abort: true };
+  }
+
+  logRunner(
+    `Skipping auto-build because a gateway appears to be listening on 127.0.0.1:${port} (dist is stale: ${buildRequirement.reason} - ${formatBuildReason(buildRequirement.reason)}).`,
+    deps,
+  );
+  return { ...buildRequirement, shouldBuild: false };
+};
+
 const runOpenClaw = async (deps) => {
   const nodeProcess = deps.spawn(deps.execPath, ["openclaw.mjs", ...deps.args], {
     cwd: deps.cwd,
@@ -788,6 +864,7 @@ export async function runNodeMain(params = {}) {
     cwd: params.cwd ?? process.cwd(),
     args: params.args ?? process.argv.slice(2),
     env: params.env ? { ...params.env } : { ...process.env },
+    isLocalPortListening: params.isLocalPortListening ?? isLocalPortListening,
     runRuntimePostBuild: params.runRuntimePostBuild ?? runRuntimePostBuild,
   };
 
@@ -809,7 +886,23 @@ export async function runNodeMain(params = {}) {
 
   try {
     let exitCode = 1;
-    const buildRequirement = resolveBuildRequirement(deps);
+    let buildRequirement = await resolveBuildRequirementConsideringGateway(deps);
+    if (buildRequirement.abort) {
+      return await closeRunNodeOutputTee(deps, 1);
+    }
+    const useExistingGatewayClientDist = shouldUseExistingDistForGatewayClient(
+      deps,
+      buildRequirement,
+    );
+    const useQaParityReportSource = shouldRunQaParityReportFromSource(deps, buildRequirement);
+    if (useExistingGatewayClientDist) {
+      buildRequirement = { shouldBuild: false, reason: "gateway_client_existing_dist" };
+    }
+    if (useQaParityReportSource) {
+      logRunner("Running QA parity report from source without rebuilding private QA dist.", deps);
+      exitCode = await runQaParityReportFromSource(deps);
+      return await closeRunNodeOutputTee(deps, exitCode);
+    }
     if (!buildRequirement.shouldBuild) {
       if (!shouldSkipCleanWatchRuntimeSync(deps)) {
         const runtimePostBuildRequirement = resolveRuntimePostBuildRequirement(deps);

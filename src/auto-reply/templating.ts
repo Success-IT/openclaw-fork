@@ -135,13 +135,14 @@ export type MsgContext = {
   /** Human label for envelope headers (conversation label, not sender). */
   ConversationLabel?: string;
   GroupSubject?: string;
+  GroupSystemPrompt?: string;
+  GroupTier?: string;
   /** Human label for channel-like group conversations (e.g. #general, #support). */
   GroupChannel?: string;
   GroupSpace?: string;
   /** Trusted provider role ids for the sender in this group turn. */
   MemberRoleIds?: string[];
   GroupMembers?: string;
-  GroupSystemPrompt?: string;
   /** Untrusted metadata that must not be treated as system instructions. */
   UntrustedContext?: string[];
   /** Structured untrusted metadata rendered by prompt assembly as fenced JSON. */

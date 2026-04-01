@@ -5,6 +5,8 @@ import {
   normalizeLowercaseStringOrEmpty,
   normalizeOptionalString,
 } from "../shared/string-coerce.js";
+import { resolveGroupTierToolPolicy } from "./group-tier-policy.js";
+import type { GroupTier } from "./types.base.js";
 import type { OpenClawConfig } from "./types.openclaw.js";
 import {
   parseToolsBySenderTypedKey,
@@ -16,6 +18,7 @@ import {
 export type GroupPolicyChannel = ChannelId;
 
 export type ChannelGroupConfig = {
+  tier?: GroupTier;
   requireMention?: boolean;
   ingest?: boolean;
   tools?: GroupToolPolicyConfig;
@@ -448,6 +451,10 @@ export function resolveChannelGroupToolsPolicy(
   }
   if (defaultConfig?.tools) {
     return defaultConfig.tools;
+  }
+  const tier = groupConfig?.tier ?? defaultConfig?.tier;
+  if (tier) {
+    return resolveGroupTierToolPolicy(tier);
   }
   return undefined;
 }

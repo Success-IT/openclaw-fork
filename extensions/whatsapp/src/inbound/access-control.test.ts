@@ -262,3 +262,37 @@ describe("WhatsApp dmPolicy precedence", () => {
     expect(result.isSelfChat).toBe(true);
   });
 });
+
+describe("WhatsApp group active hours", () => {
+  it("silently blocks group messages outside configured active hours", async () => {
+    setAccessControlTestConfig({
+      channels: {
+        whatsapp: {
+          accounts: {
+            work: {
+              activeHours: {
+                weekday: { start: "09:00", end: "17:00" },
+                timezone: "UTC",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const result = await checkInboundAccessControl({
+      accountId: "work",
+      from: "123@g.us",
+      selfE164: "+15550009999",
+      senderE164: "+15550001111",
+      group: true,
+      pushName: "Stranger",
+      isFromMe: false,
+      messageTimestampMs: Date.parse("2026-04-01T01:00:00Z"),
+      sock: { sendMessage: sendMessageMock },
+      remoteJid: "123@g.us",
+    });
+
+    expectSilentlyBlocked(result);
+  });
+});

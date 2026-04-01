@@ -7,6 +7,7 @@ import {
   readStoreAllowFromForDmPolicy,
   resolveDmGroupAccessWithLists,
 } from "openclaw/plugin-sdk/security-runtime";
+import { isWithinWeeklyActiveHours } from "../active-hours.js";
 import { resolveWhatsAppInboundPolicy } from "../inbound-policy.js";
 
 export type InboundAccessControlResult = {
@@ -62,6 +63,19 @@ export async function checkInboundAccessControl(params: {
     typeof params.connectedAtMs === "number" &&
     typeof params.messageTimestampMs === "number" &&
     params.messageTimestampMs < params.connectedAtMs - pairingGraceMs;
+
+  if (params.group && policy.account.activeHours) {
+    const tz = policy.account.activeHours.timezone ?? "UTC";
+    if (!isWithinWeeklyActiveHours(policy.account.activeHours, tz, params.messageTimestampMs)) {
+      logWhatsAppVerbose(params.verbose, "Blocked group message (outside active hours)");
+      return {
+        allowed: false,
+        shouldMarkRead: false,
+        isSelfChat: policy.isSelfChat,
+        resolvedAccountId: policy.account.accountId,
+      };
+    }
+  }
 
   // Group policy filtering:
   // - "open": groups bypass allowFrom, only mention-gating applies

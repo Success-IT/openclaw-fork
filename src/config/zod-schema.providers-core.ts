@@ -20,6 +20,7 @@ import {
   DmPolicySchema,
   ExecutableTokenSchema,
   GroupPolicySchema,
+  GroupTierSchema,
   HexColorSchema,
   MarkdownConfigSchema,
   MSTeamsReplyStyleSchema,
@@ -130,6 +131,7 @@ export const TelegramTopicSchema = z
 
 export const TelegramGroupSchema = z
   .object({
+    tier: GroupTierSchema.optional(),
     requireMention: z.boolean().optional(),
     ingest: z.boolean().optional(),
     disableAudioPreflight: z.boolean().optional(),
@@ -449,6 +451,7 @@ export const DiscordGuildChannelSchema = z
   .object({
     requireMention: z.boolean().optional(),
     ignoreOtherMentions: z.boolean().optional(),
+    accounts: z.array(z.string()).optional(),
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
     skills: z.array(z.string()).optional(),

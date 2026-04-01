@@ -2,7 +2,6 @@ import type { WebInboundMsg } from "../types.js";
 import { formatGroupMembers } from "./group-members.js";
 import type { GroupHistoryEntry } from "./inbound-context.js";
 import {
-  createChannelReplyPipeline,
   dispatchReplyWithBufferedBlockDispatcher,
   finalizeInboundContext,
   getAgentScopedMediaLocalRoots,
@@ -24,9 +23,12 @@ import {
 } from "./inbound-dispatch.runtime.js";
 
 type ReplyLifecycleKind = "tool" | "block" | "final";
-type ChannelReplyOnModelSelected = NonNullable<
-  ReturnType<typeof createChannelReplyPipeline>["onModelSelected"]
->;
+type ChannelReplyModelSelectedContext = {
+  provider: string;
+  model: string;
+  thinkLevel: string | undefined;
+};
+type ChannelReplyOnModelSelected = (ctx: ChannelReplyModelSelectedContext) => void;
 
 type WhatsAppDispatchPipeline = {
   responsePrefix?: string;
@@ -97,6 +99,7 @@ export function buildWhatsAppInboundContext(params: {
   groupHistory?: GroupHistoryEntry[];
   groupMemberRoster?: Map<string, string>;
   groupSystemPrompt?: string;
+  groupTier?: string;
   msg: WebInboundMsg;
   rawBody?: string;
   route: ReturnType<typeof resolveAgentRoute>;
@@ -136,6 +139,8 @@ export function buildWhatsAppInboundContext(params: {
     Timestamp: params.msg.timestamp,
     ConversationLabel: params.msg.chatType === "group" ? params.conversationId : params.msg.from,
     GroupSubject: params.msg.groupSubject,
+    GroupSystemPrompt: params.groupSystemPrompt,
+    GroupTier: params.groupTier,
     GroupMembers: formatGroupMembers({
       participants: params.msg.groupParticipants,
       roster: params.groupMemberRoster,
@@ -147,7 +152,6 @@ export function buildWhatsAppInboundContext(params: {
     CommandAuthorized: params.commandAuthorized,
     ReplyThreading: params.replyThreading,
     WasMentioned: params.msg.wasMentioned,
-    GroupSystemPrompt: params.groupSystemPrompt,
     UntrustedStructuredContext: params.msg.untrustedStructuredContext,
     ...(params.msg.location ? toLocationContext(params.msg.location) : {}),
     Provider: "whatsapp",

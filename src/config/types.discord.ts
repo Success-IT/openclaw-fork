@@ -43,6 +43,11 @@ export type DiscordGuildChannelConfig = {
    * Default: false.
    */
   ignoreOtherMentions?: boolean;
+  /**
+   * Optional allowlist of Discord `accountId`s that may respond in this channel.
+   * Omit/empty = allow any configured Discord account.
+   */
+  accounts?: string[];
   /** Optional tool policy overrides for this channel. */
   tools?: GroupToolPolicyConfig;
   toolsBySender?: GroupToolPolicyBySenderConfig;

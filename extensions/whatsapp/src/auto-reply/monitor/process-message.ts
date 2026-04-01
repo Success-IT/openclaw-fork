@@ -391,6 +391,9 @@ export async function processMessage(params: {
     account.replyToMode ?? "off",
     params.msg.isBatched === true,
   );
+  const groupConfig =
+    params.msg.chatType === "group" ? account.groups?.[conversationId] : undefined;
+  const groupTier = groupConfig?.tier;
 
   // Resolve combined conversation system prompt using the group or direct surface.
   const conversationSystemPrompt =
@@ -413,6 +416,7 @@ export async function processMessage(params: {
     groupHistory: visibleGroupHistory,
     groupMemberRoster: params.groupMemberNames.get(params.groupHistoryKey),
     groupSystemPrompt: conversationSystemPrompt,
+    groupTier,
     msg: params.msg,
     rawBody: params.msg.body,
     route: params.route,

@@ -6,6 +6,7 @@ import { resolveEmbeddedFullAccessState } from "../../agents/pi-embedded-runner/
 import type { EmbeddedFullAccessBlockedReason } from "../../agents/pi-embedded-runner/types.js";
 import { resolveIngressWorkspaceOverrideForSpawnedRun } from "../../agents/spawned-context.js";
 import { normalizeChatType } from "../../channels/chat-type.js";
+import { resolveGroupTierSystemPrompt } from "../../config/group-tier-policy.js";
 import { resolveGroupSessionKey } from "../../config/sessions/group.js";
 import {
   resolveSessionFilePath,
@@ -14,6 +15,7 @@ import {
 import { resolveSessionStoreEntry } from "../../config/sessions/store.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
 import { resolveSilentReplySettings } from "../../config/silent-reply.js";
+import type { GroupTier } from "../../config/types.base.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { logVerbose } from "../../globals.js";
 import { clearCommandLane, getQueueSize } from "../../process/command-queue.js";
@@ -339,7 +341,21 @@ export async function runPreparedReply(
         silentReplyRewrite: silentReplySettings.rewrite,
       })
     : "";
-  const groupSystemPrompt = normalizeOptionalString(sessionCtx.GroupSystemPrompt) ?? "";
+  const allowEmptyAssistantReplyAsSilent =
+    (isDirectChat &&
+      silentReplyConversationType === "direct" &&
+      silentReplySettings.policy === "allow") ||
+    (isGroupChat &&
+      resolveGroupSilentReplyBehavior({
+        sessionEntry,
+        defaultActivation,
+        silentReplyPolicy: silentReplySettings.policy,
+        silentReplyRewrite: silentReplySettings.rewrite,
+      }).allowEmptyAssistantReplyAsSilent);
+  const groupSystemPrompt = normalizeOptionalString(promptSessionCtx.GroupSystemPrompt) ?? "";
+  const tierSystemPrompt = isGroupChat
+    ? (resolveGroupTierSystemPrompt(promptSessionCtx.GroupTier as GroupTier | undefined) ?? "")
+    : "";
   const inboundMetaPrompt = buildInboundMetaSystemPrompt(
     isNewSession ? sessionCtx : { ...sessionCtx, ThreadStarterBody: undefined },
     { includeFormattingHints: !useFastReplyRuntime },
@@ -349,6 +365,7 @@ export async function runPreparedReply(
     directChatContext,
     groupChatContext,
     groupIntro,
+    tierSystemPrompt,
     groupSystemPrompt,
     buildExecOverridePromptHint({
       execOverrides,

@@ -12,6 +12,7 @@ import {
   DmConfigSchema,
   DmPolicySchema,
   GroupPolicySchema,
+  GroupTierSchema,
   MarkdownConfigSchema,
   ReplyToModeSchema,
 } from "./zod-schema.core.js";
@@ -20,6 +21,7 @@ const ToolPolicyBySenderSchema = z.record(z.string(), ToolPolicySchema).optional
 
 const WhatsAppGroupEntrySchema = z
   .object({
+    tier: GroupTierSchema.optional(),
     requireMention: z.boolean().optional(),
     tools: ToolPolicySchema,
     toolsBySender: ToolPolicyBySenderSchema,
@@ -85,6 +87,20 @@ function buildWhatsAppCommonShape(params: { useDefaults: boolean }) {
     replyToMode: ReplyToModeSchema.optional(),
     heartbeat: ChannelHeartbeatVisibilitySchema,
     healthMonitor: ChannelHealthMonitorSchema,
+    activeHours: z
+      .object({
+        weekday: z
+          .object({ start: z.string().optional(), end: z.string().optional() })
+          .strict()
+          .optional(),
+        weekend: z
+          .object({ start: z.string().optional(), end: z.string().optional() })
+          .strict()
+          .optional(),
+        timezone: z.string().optional(),
+      })
+      .strict()
+      .optional(),
   };
 }
 

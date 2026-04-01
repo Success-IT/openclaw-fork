@@ -11,6 +11,10 @@ import {
   pruneBundledPluginSourceNodeModules,
 } from "./postinstall-bundled-plugins.mjs";
 
+// Remove old dist output to prevent stale hashed chunks (e.g. deps-send-telegram.runtime-*.js)
+// from lingering across builds and causing ERR_MODULE_NOT_FOUND at runtime.
+fs.rmSync("dist", { recursive: true, force: true });
+
 const logLevel = process.env.OPENCLAW_BUILD_VERBOSE ? "info" : "warn";
 const extraArgs = process.argv.slice(2);
 const INEFFECTIVE_DYNAMIC_IMPORT_MARKER = "[INEFFECTIVE_DYNAMIC_IMPORT]";
@@ -118,10 +122,7 @@ function findFatalUnresolvedImport(lines) {
     }
 
     const normalizedLine = line.replace(ANSI_ESCAPE_RE, "");
-    if (
-      !normalizedLine.includes(BUNDLED_PLUGIN_PATH_PREFIX) &&
-      !normalizedLine.includes("node_modules/")
-    ) {
+    if (!normalizedLine.includes("extensions/") && !normalizedLine.includes("node_modules/")) {
       return normalizedLine;
     }
   }

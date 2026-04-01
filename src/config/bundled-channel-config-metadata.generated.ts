@@ -1201,6 +1201,12 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                     ignoreOtherMentions: {
                       type: "boolean",
                     },
+                    accounts: {
+                      type: "array",
+                      items: {
+                        type: "string",
+                      },
+                    },
                     tools: {
                       type: "object",
                       properties: {
@@ -2376,6 +2382,12 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                           },
                           ignoreOtherMentions: {
                             type: "boolean",
+                          },
+                          accounts: {
+                            type: "array",
+                            items: {
+                              type: "string",
+                            },
                           },
                           tools: {
                             type: "object",
@@ -12680,6 +12692,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
           additionalProperties: {
             type: "object",
             properties: {
+              tier: {
+                type: "string",
+                enum: ["public", "trusted", "enterprise"],
+              },
               requireMention: {
                 type: "boolean",
               },
@@ -13721,6 +13737,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                 additionalProperties: {
                   type: "object",
                   properties: {
+                    tier: {
+                      type: "string",
+                      enum: ["public", "trusted", "enterprise"],
+                    },
                     requireMention: {
                       type: "boolean",
                     },
@@ -15229,6 +15249,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
           additionalProperties: {
             type: "object",
             properties: {
+              tier: {
+                type: "string",
+                enum: ["public", "trusted", "enterprise"],
+              },
               requireMention: {
                 type: "boolean",
               },
@@ -15381,6 +15405,39 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
           },
           additionalProperties: false,
         },
+        activeHours: {
+          type: "object",
+          properties: {
+            weekday: {
+              type: "object",
+              properties: {
+                start: {
+                  type: "string",
+                },
+                end: {
+                  type: "string",
+                },
+              },
+              additionalProperties: false,
+            },
+            weekend: {
+              type: "object",
+              properties: {
+                start: {
+                  type: "string",
+                },
+                end: {
+                  type: "string",
+                },
+              },
+              additionalProperties: false,
+            },
+            timezone: {
+              type: "string",
+            },
+          },
+          additionalProperties: false,
+        },
         accounts: {
           type: "object",
           propertyNames: {
@@ -15518,6 +15575,10 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                 additionalProperties: {
                   type: "object",
                   properties: {
+                    tier: {
+                      type: "string",
+                      enum: ["public", "trusted", "enterprise"],
+                    },
                     requireMention: {
                       type: "boolean",
                     },
@@ -15665,6 +15726,39 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                 properties: {
                   enabled: {
                     type: "boolean",
+                  },
+                },
+                additionalProperties: false,
+              },
+              activeHours: {
+                type: "object",
+                properties: {
+                  weekday: {
+                    type: "object",
+                    properties: {
+                      start: {
+                        type: "string",
+                      },
+                      end: {
+                        type: "string",
+                      },
+                    },
+                    additionalProperties: false,
+                  },
+                  weekend: {
+                    type: "object",
+                    properties: {
+                      start: {
+                        type: "string",
+                      },
+                      end: {
+                        type: "string",
+                      },
+                    },
+                    additionalProperties: false,
+                  },
+                  timezone: {
+                    type: "string",
                   },
                 },
                 additionalProperties: false,

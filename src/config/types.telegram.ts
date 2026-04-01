@@ -3,6 +3,7 @@ import type {
   ContextVisibilityMode,
   DmPolicy,
   GroupPolicy,
+  GroupTier,
   MarkdownConfig,
   OutboundRetryConfig,
   ReplyToMode,
@@ -245,6 +246,7 @@ export type TelegramTopicConfig = {
 };
 
 export type TelegramGroupConfig = {
+  tier?: GroupTier;
   requireMention?: boolean;
   /** Emit internal message hooks for mention-skipped group messages. */
   ingest?: boolean;

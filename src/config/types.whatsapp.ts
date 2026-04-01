@@ -4,6 +4,7 @@ import type {
   ContextVisibilityMode,
   DmPolicy,
   GroupPolicy,
+  GroupTier,
   MarkdownConfig,
   ReplyToMode,
 } from "./types.base.js";
@@ -23,6 +24,7 @@ export type WhatsAppActionConfig = {
 export type WhatsAppReactionLevel = ReactionLevel;
 
 export type WhatsAppGroupConfig = {
+  tier?: GroupTier;
   requireMention?: boolean;
   tools?: GroupToolPolicyConfig;
   toolsBySender?: GroupToolPolicyBySenderConfig;
@@ -109,6 +111,12 @@ type WhatsAppSharedConfig = {
   heartbeat?: ChannelHeartbeatVisibilityConfig;
   /** Channel health monitor overrides for this channel/account. */
   healthMonitor?: ChannelHealthMonitorConfig;
+  /** Active hours windows — messages outside these windows are dropped (groups only). */
+  activeHours?: {
+    weekday?: { start?: string; end?: string };
+    weekend?: { start?: string; end?: string };
+    timezone?: string;
+  };
 };
 
 type WhatsAppConfigCore = {
