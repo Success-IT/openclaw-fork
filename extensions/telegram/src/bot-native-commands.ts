@@ -15,13 +15,6 @@ import {
 } from "openclaw/plugin-sdk/command-auth-native";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import type { ChannelGroupPolicy } from "openclaw/plugin-sdk/config-runtime";
-import { resolveMarkdownTableMode } from "openclaw/plugin-sdk/markdown-table-runtime";
-import { getRuntimeConfigSnapshot } from "openclaw/plugin-sdk/runtime-config-snapshot";
-import {
-  normalizeTelegramCommandName,
-  resolveTelegramCustomCommands,
-  TELEGRAM_COMMAND_NAME_PATTERN,
-} from "openclaw/plugin-sdk/telegram-command-config";
 import type {
   ReplyToMode,
   TelegramAccountConfig,
@@ -33,6 +26,7 @@ import {
   ensureConfiguredBindingRouteReady,
   recordInboundSessionMetaSafe,
 } from "openclaw/plugin-sdk/conversation-runtime";
+import { resolveMarkdownTableMode } from "openclaw/plugin-sdk/markdown-table-runtime";
 import { getAgentScopedMediaLocalRoots } from "openclaw/plugin-sdk/media-runtime";
 import {
   executePluginCommand,
@@ -42,12 +36,19 @@ import {
 import {
   finalizeInboundContext,
   resolveChunkMode,
+  type ReplyPayload,
 } from "openclaw/plugin-sdk/reply-dispatch-runtime";
 import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
 import { resolveThreadSessionKeys } from "openclaw/plugin-sdk/routing";
+import { getRuntimeConfigSnapshot } from "openclaw/plugin-sdk/runtime-config-snapshot";
 import { danger, logVerbose } from "openclaw/plugin-sdk/runtime-env";
 import { getChildLogger } from "openclaw/plugin-sdk/runtime-env";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
+import {
+  normalizeTelegramCommandName,
+  resolveTelegramCustomCommands,
+  TELEGRAM_COMMAND_NAME_PATTERN,
+} from "openclaw/plugin-sdk/telegram-command-config";
 import { resolveTelegramAccount } from "./accounts.js";
 import { withTelegramApiErrorLogging } from "./api-logging.js";
 import { isSenderAllowed, normalizeDmAllowFromWithStore } from "./bot-access.js";
@@ -110,6 +111,22 @@ async function loadTelegramNativeCommandDeliveryRuntime() {
   telegramNativeCommandDeliveryRuntimePromise ??=
     import("./bot-native-commands.delivery.runtime.js");
   return await telegramNativeCommandDeliveryRuntimePromise;
+}
+
+function shouldUseTelegramProgressPlaceholder(commandBody: string): boolean {
+  const normalized = commandBody.trim().replace(/\s+/g, " ").toLowerCase();
+  return normalized === "/lossless doctor apply" || normalized === "/lcm doctor apply";
+}
+
+function isEditableTelegramProgressResult(result: ReplyPayload): boolean {
+  return Boolean(
+    typeof result.text === "string" &&
+    result.text.trim() &&
+    !result.mediaUrl &&
+    (!result.mediaUrls || result.mediaUrls.length === 0) &&
+    !result.interactive &&
+    !result.btw,
+  );
 }
 
 export type RegisterTelegramHandlerParams = {
@@ -949,6 +966,28 @@ export const registerTelegramNativeCommands = ({
         const from = isGroup ? buildTelegramGroupFrom(chatId, threadSpec.id) : `telegram:${chatId}`;
         const to = `telegram:${chatId}`;
         const { deliverReplies } = await loadTelegramNativeCommandDeliveryRuntime();
+        let progressMessageId: number | undefined;
+
+        if (shouldUseTelegramProgressPlaceholder(commandBody)) {
+          try {
+            const sent = await withTelegramApiErrorLogging({
+              operation: "sendMessage",
+              runtime,
+              fn: () =>
+                bot.api.sendMessage(
+                  chatId,
+                  `Running \`${commandBody}\`...\n\nI'll edit this message with the final result when it's ready.`,
+                  buildTelegramThreadParams(threadSpec),
+                ),
+            });
+            const maybeMessageId = (sent as { message_id?: unknown } | undefined)?.message_id;
+            if (typeof maybeMessageId === "number") {
+              progressMessageId = maybeMessageId;
+            }
+          } catch {
+            // Fall back to the normal final reply path if the placeholder send fails.
+          }
+        }
 
         const result = await executePluginCommand({
           command: match.command,
@@ -972,6 +1011,23 @@ export const registerTelegramNativeCommands = ({
             payload: result,
           })
         ) {
+          if (
+            progressMessageId != null &&
+            telegramDeps.editMessageTelegram &&
+            isEditableTelegramProgressResult(result)
+          ) {
+            try {
+              await telegramDeps.editMessageTelegram(chatId, progressMessageId, result.text, {
+                cfg: runtimeCfg,
+                accountId: route.accountId,
+                textMode: "markdown",
+                linkPreview: runtimeTelegramCfg.linkPreview,
+              });
+              return;
+            } catch {
+              // Fall through to a normal delivered reply if editing fails.
+            }
+          }
           await deliverReplies({
             replies: [result],
             ...deliveryBaseOptions,
