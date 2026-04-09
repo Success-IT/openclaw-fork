@@ -378,7 +378,13 @@ export async function runNodeMain(params = {}) {
   }));
   deps.configFiles = runNodeConfigFiles.map((filePath) => path.join(deps.cwd, filePath));
 
-  if (!shouldBuild(deps)) {
+  const autoBuildDecision = await shouldAutoBuildConsideringGateway(deps);
+
+  if (autoBuildDecision === "abort") {
+    return 1;
+  }
+
+  if (!autoBuildDecision) {
     if (!syncRuntimeArtifacts(deps)) {
       return 1;
     }

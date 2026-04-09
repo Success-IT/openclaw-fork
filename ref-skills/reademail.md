@@ -26,22 +26,23 @@ If no arguments provided, list the 10 most recent emails.
 
 ### 1. Search for Emails
 
-**If search term provided**, search for emails:
+**If search term provided**, search Inbox emails:
 
 ```bash
-mgc users messages list --user-id=me --search="$ARGUMENTS" --top=20 --select="id,subject,from,receivedDateTime,bodyPreview" 2>&1
+mgc users mail-folders messages list --user-id=me --mail-folder-id=inbox --search="$ARGUMENTS" --top=20 --select="id,subject,from,receivedDateTime,bodyPreview" 2>&1
 ```
 
-**If no search term**, list recent emails:
+**If no search term**, list recent Inbox emails:
 
 ```bash
-mgc users messages list --user-id=me --top=10 --select="id,subject,from,receivedDateTime,bodyPreview" --orderby="receivedDateTime desc" 2>&1
+mgc users mail-folders messages list --user-id=me --mail-folder-id=inbox --top=10 --select="id,subject,from,receivedDateTime,bodyPreview" --orderby="receivedDateTime desc" 2>&1
 ```
 
 **Note**: The search parameter doesn't support special characters like `:` or `.` directly. If searching for an email address or domain:
 
 - Search for a keyword instead (e.g., search for "verify" instead of "verify.apac@fadv.com")
 - Or search for sender name
+- Keep list and search scoped to `inbox`. In this mailbox, `mgc users messages list --user-id=me ...` can return repeated HTTP 503 errors, while the folder-scoped Inbox path remains stable.
 
 ### 2. Display Results
 
