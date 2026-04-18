@@ -135,6 +135,38 @@ describe("runSubagentAnnounceDispatch", () => {
     ]);
   });
 
+  it("skips completion queue fallback when the policy rejects it", async () => {
+    const queue = vi.fn(async () => "steered" as const);
+    const direct = vi.fn(async () => ({
+      delivered: false,
+      path: "direct" as const,
+      error: "Forbidden: bot is not a member of the chat",
+    }));
+
+    const result = await runSubagentAnnounceDispatch({
+      expectsCompletionMessage: true,
+      queue,
+      direct,
+      shouldQueueCompletionFallback: () => false,
+    });
+
+    expect(direct).toHaveBeenCalledTimes(1);
+    expect(queue).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      delivered: false,
+      path: "direct",
+      error: "Forbidden: bot is not a member of the chat",
+    });
+    expect(result.phases).toEqual([
+      {
+        phase: "direct-primary",
+        delivered: false,
+        path: "direct",
+        error: "Forbidden: bot is not a member of the chat",
+      },
+    ]);
+  });
+
   it("does not fall through to direct delivery when non-completion queue drops the new item", async () => {
     const queue = vi.fn(async () => "dropped" as const);
     const direct = vi.fn(async () => ({ delivered: true, path: "direct" as const }));

@@ -181,4 +181,19 @@ describe("normalizeMessageActionInput", () => {
       }),
     ).toThrow(/requires a target/);
   });
+
+  it("throws when send includes topic without an explicit target", () => {
+    expect(() =>
+      normalizeMessageActionInput({
+        action: "send",
+        args: {
+          topic: "zach",
+        },
+        toolContext: {
+          currentChannelId: "6591837772@s.whatsapp.net",
+          currentChannelProvider: "whatsapp",
+        },
+      }),
+    ).toThrow(/`topic` does not select a recipient/);
+  });
 });

@@ -208,15 +208,91 @@ const PERMANENT_ANNOUNCE_DELIVERY_ERROR_PATTERNS: readonly RegExp[] = [
   /outbound not configured for channel/i,
 ];
 
+function isPermanentAnnounceDeliveryError(error: unknown): boolean {
+  const message = summarizeDeliveryError(error);
+  if (!message) {
+    return false;
+  }
+  return PERMANENT_ANNOUNCE_DELIVERY_ERROR_PATTERNS.some((re) => re.test(message));
+}
+
 function isTransientAnnounceDeliveryError(error: unknown): boolean {
   const message = summarizeDeliveryError(error);
   if (!message) {
     return false;
   }
-  if (PERMANENT_ANNOUNCE_DELIVERY_ERROR_PATTERNS.some((re) => re.test(message))) {
+  if (isPermanentAnnounceDeliveryError(message)) {
     return false;
   }
   return TRANSIENT_ANNOUNCE_DELIVERY_ERROR_PATTERNS.some((re) => re.test(message));
+}
+
+type ComparableAnnounceDeliveryTarget = {
+  channel: string;
+  to: string;
+  accountId?: string;
+  threadId?: string;
+};
+
+function normalizeComparableAnnounceDeliveryTarget(
+  origin?: DeliveryContext,
+): ComparableAnnounceDeliveryTarget | undefined {
+  const normalizedOrigin = normalizeDeliveryContext(origin);
+  const channel = normalizeMessageChannel(normalizedOrigin?.channel);
+  const to = normalizedOrigin?.to?.trim();
+  if (!channel || !to || isInternalMessageChannel(channel)) {
+    return undefined;
+  }
+  const accountId = normalizeAccountId(normalizedOrigin?.accountId);
+  const threadId =
+    normalizedOrigin?.threadId != null && normalizedOrigin.threadId !== ""
+      ? String(normalizedOrigin.threadId).trim()
+      : undefined;
+  return {
+    channel,
+    to,
+    ...(accountId ? { accountId } : {}),
+    ...(threadId ? { threadId } : {}),
+  };
+}
+
+function comparableAnnounceDeliveryTargetsEqual(
+  left?: ComparableAnnounceDeliveryTarget,
+  right?: ComparableAnnounceDeliveryTarget,
+): boolean {
+  return (
+    left?.channel === right?.channel &&
+    left?.to === right?.to &&
+    (left?.accountId ?? undefined) === (right?.accountId ?? undefined) &&
+    (left?.threadId ?? undefined) === (right?.threadId ?? undefined)
+  );
+}
+
+function shouldQueueCompletionFallbackAfterDirectFailure(params: {
+  requesterIsSubagent: boolean;
+  completionDirectOrigin?: DeliveryContext;
+  directOrigin?: DeliveryContext;
+  requesterSessionOrigin?: DeliveryContext;
+  directError?: string;
+}): boolean {
+  if (params.requesterIsSubagent || !isPermanentAnnounceDeliveryError(params.directError)) {
+    return true;
+  }
+  const completionDirectOrigin = normalizeDeliveryContext(params.completionDirectOrigin);
+  const directOrigin = normalizeDeliveryContext(params.directOrigin);
+  const effectiveDirectOrigin =
+    completionDirectOrigin != null
+      ? mergeDeliveryContext(completionDirectOrigin, directOrigin)
+      : directOrigin;
+  const directTarget = normalizeComparableAnnounceDeliveryTarget(effectiveDirectOrigin);
+  if (!directTarget) {
+    return true;
+  }
+  const requesterTarget = normalizeComparableAnnounceDeliveryTarget(params.requesterSessionOrigin);
+  if (!requesterTarget) {
+    return false;
+  }
+  return comparableAnnounceDeliveryTargetsEqual(directTarget, requesterTarget);
 }
 
 async function waitForAnnounceRetryDelay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -801,6 +877,14 @@ export async function deliverSubagentAnnouncement(params: {
   return await runSubagentAnnounceDispatch({
     expectsCompletionMessage: params.expectsCompletionMessage,
     signal: params.signal,
+    shouldQueueCompletionFallback: (result) =>
+      shouldQueueCompletionFallbackAfterDirectFailure({
+        requesterIsSubagent: params.requesterIsSubagent,
+        completionDirectOrigin: params.completionDirectOrigin,
+        directOrigin: params.directOrigin,
+        requesterSessionOrigin: params.requesterSessionOrigin,
+        directError: result.error,
+      }),
     queue: async () =>
       await maybeQueueSubagentAnnounce({
         requesterSessionKey: params.requesterSessionKey,
@@ -836,6 +920,8 @@ export async function deliverSubagentAnnouncement(params: {
 }
 
 export const __testing = {
+  isPermanentAnnounceDeliveryError,
+  shouldQueueCompletionFallbackAfterDirectFailure,
   setDepsForTest(overrides?: Partial<SubagentAnnounceDeliveryDeps>) {
     subagentAnnounceDeliveryDeps = overrides
       ? {

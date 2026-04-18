@@ -413,3 +413,49 @@ describe("extractThreadCompletionFallbackText", () => {
     ).toBe("sample task");
   });
 });
+
+describe("subagent announce delivery fallback policy", () => {
+  it("treats Telegram membership errors as permanent", () => {
+    expect(
+      __testing.isPermanentAnnounceDeliveryError(
+        "Telegram send failed: 403 Forbidden: bot is not a member of the chat",
+      ),
+    ).toBe(true);
+    expect(__testing.isPermanentAnnounceDeliveryError("gateway timeout")).toBe(false);
+  });
+
+  it("suppresses queue fallback when an alternate external completion target fails permanently", () => {
+    expect(
+      __testing.shouldQueueCompletionFallbackAfterDirectFailure({
+        requesterIsSubagent: false,
+        requesterSessionOrigin: {
+          channel: "telegram",
+          to: "123456789",
+        },
+        completionDirectOrigin: {
+          channel: "telegram",
+          to: "-1001005640892",
+          threadId: "42",
+        },
+        directError: "Telegram send failed: 403 Forbidden: bot is not a member of the chat",
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps queue fallback when the completion target matches the requester session", () => {
+    expect(
+      __testing.shouldQueueCompletionFallbackAfterDirectFailure({
+        requesterIsSubagent: false,
+        requesterSessionOrigin: {
+          channel: "telegram",
+          to: "123456789",
+        },
+        completionDirectOrigin: {
+          channel: "telegram",
+          to: "123456789",
+        },
+        directError: "Telegram send failed: 403 Forbidden: bot is not a member of the chat",
+      }),
+    ).toBe(true);
+  });
+});

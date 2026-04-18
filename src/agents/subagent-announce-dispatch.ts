@@ -49,6 +49,7 @@ export async function runSubagentAnnounceDispatch(params: {
   signal?: AbortSignal;
   queue: () => Promise<SubagentAnnounceQueueOutcome>;
   direct: () => Promise<SubagentAnnounceDeliveryResult>;
+  shouldQueueCompletionFallback?: (result: SubagentAnnounceDeliveryResult) => boolean;
 }): Promise<SubagentAnnounceDeliveryResult> {
   const phases: SubagentAnnounceDispatchPhaseResult[] = [];
   const appendPhase = (
@@ -97,6 +98,10 @@ export async function runSubagentAnnounceDispatch(params: {
   }
 
   if (params.signal?.aborted) {
+    return withPhases(primaryDirect);
+  }
+
+  if (params.shouldQueueCompletionFallback?.(primaryDirect) === false) {
     return withPhases(primaryDirect);
   }
 

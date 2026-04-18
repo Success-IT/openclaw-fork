@@ -27,10 +27,15 @@ export function normalizeMessageActionInput(params: {
   const hasLegacyTarget =
     (normalizeOptionalString(normalizedArgs.to) ?? "").length > 0 ||
     (normalizeOptionalString(normalizedArgs.channelId) ?? "").length > 0;
+  const topic = normalizeOptionalString(normalizedArgs.topic) ?? "";
 
   if (explicitTarget && hasLegacyTargetFields) {
     delete normalizedArgs.to;
     delete normalizedArgs.channelId;
+  }
+
+  if (action === "send" && topic && !explicitTarget && !hasLegacyTarget) {
+    throw new Error("Action send requires `target`; `topic` does not select a recipient.");
   }
 
   if (
