@@ -2,7 +2,11 @@ import type { StreamFn } from "@mariozechner/pi-agent-core";
 import { streamSimple } from "@mariozechner/pi-ai";
 import type { ProviderWrapStreamFnContext } from "openclaw/plugin-sdk/plugin-entry";
 import { normalizeProviderId } from "openclaw/plugin-sdk/provider-model-shared";
-import { streamWithPayloadPatch } from "openclaw/plugin-sdk/provider-stream-shared";
+import {
+  createMoonshotThinkingWrapper,
+  resolveMoonshotThinkingType,
+  streamWithPayloadPatch,
+} from "openclaw/plugin-sdk/provider-stream-shared";
 import { isFireworksKimiModelId } from "./model-id.js";
 
 function isFireworksProviderId(providerId: string): boolean {
@@ -34,6 +38,13 @@ export function wrapFireworksProviderStream(
     !isFireworksKimiModelId(ctx.modelId)
   ) {
     return undefined;
+  }
+  const thinkingType = resolveMoonshotThinkingType({
+    configuredThinking: ctx.extraParams?.thinking,
+    thinkingLevel: ctx.thinkingLevel,
+  });
+  if (thinkingType && thinkingType !== "disabled") {
+    return createMoonshotThinkingWrapper(ctx.streamFn, thinkingType);
   }
   return createFireworksKimiThinkingDisabledWrapper(ctx.streamFn);
 }

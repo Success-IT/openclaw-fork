@@ -34,6 +34,52 @@ function capturePayload(params: {
   return captured;
 }
 
+function captureWrappedProviderPayload(params: {
+  provider?: string;
+  api?: string;
+  modelId?: string;
+  thinkingLevel?: "off" | "low" | "medium" | "high";
+  extraParams?: Record<string, unknown>;
+  initialPayload?: Record<string, unknown>;
+}): Record<string, unknown> | undefined {
+  let captured: Record<string, unknown> | undefined;
+  const baseStreamFn: StreamFn = (_model, _context, options) => {
+    const payload = { ...params.initialPayload };
+    options?.onPayload?.(payload, _model);
+    captured = payload;
+    return {} as ReturnType<StreamFn>;
+  };
+
+  const wrapped = wrapFireworksProviderStream({
+    provider: params.provider ?? "fireworks",
+    modelId: params.modelId ?? "accounts/fireworks/routers/kimi-k2p5-turbo",
+    model: {
+      api: (params.api ?? "openai-completions") as "openai-completions",
+      provider: params.provider ?? "fireworks",
+      id: params.modelId ?? "accounts/fireworks/routers/kimi-k2p5-turbo",
+    } as Model<"openai-completions">,
+    streamFn: baseStreamFn,
+    thinkingLevel: params.thinkingLevel,
+    extraParams: params.extraParams,
+  } as never);
+
+  if (!wrapped) {
+    return undefined;
+  }
+
+  void wrapped(
+    {
+      api: (params.api ?? "openai-completions") as "openai-completions",
+      provider: params.provider ?? "fireworks",
+      id: params.modelId ?? "accounts/fireworks/routers/kimi-k2p5-turbo",
+    } as Model<"openai-completions">,
+    { messages: [] } as Context,
+    {},
+  );
+
+  return captured;
+}
+
 describe("createFireworksKimiThinkingDisabledWrapper", () => {
   it("forces thinking disabled for Fireworks Kimi models", () => {
     expect(
@@ -169,5 +215,23 @@ describe("createFireworksKimiThinkingDisabledWrapper", () => {
         streamFn: undefined,
       } as never),
     ).toBeUndefined();
+  });
+});
+
+describe("wrapFireworksProviderStream", () => {
+  it("keeps Fireworks Kimi thinking disabled by default", () => {
+    expect(captureWrappedProviderPayload({})).toEqual({ thinking: { type: "disabled" } });
+  });
+
+  it("enables Fireworks Kimi thinking when thinkingLevel is non-off", () => {
+    expect(captureWrappedProviderPayload({ thinkingLevel: "high" })).toEqual({
+      thinking: { type: "enabled" },
+    });
+  });
+
+  it("honors explicit thinking config in extra params", () => {
+    expect(captureWrappedProviderPayload({ extraParams: { thinking: "enabled" } })).toEqual({
+      thinking: { type: "enabled" },
+    });
   });
 });
