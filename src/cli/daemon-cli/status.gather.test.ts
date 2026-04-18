@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { GatewayServiceRuntime } from "../../daemon/service-runtime.js";
 import { createMockGatewayService } from "../../daemon/service.test-helpers.js";
 import { captureEnv } from "../../test-utils/env.js";
 import type { GatewayRestartSnapshot } from "./restart-health.js";
@@ -26,7 +27,9 @@ const inspectPortUsage = vi.fn(async (port: number) => ({
 const readLastGatewayErrorLine = vi.fn(async (_env?: NodeJS.ProcessEnv) => null);
 const auditGatewayServiceConfig = vi.fn(async (_opts?: unknown) => undefined);
 const serviceIsLoaded = vi.fn(async (_opts?: unknown) => true);
-const serviceReadRuntime = vi.fn(async (_env?: NodeJS.ProcessEnv) => ({ status: "running" }));
+const serviceReadRuntime = vi.fn<(env?: NodeJS.ProcessEnv) => Promise<GatewayServiceRuntime>>(
+  async (_env?: NodeJS.ProcessEnv) => ({ status: "running" }),
+);
 const inspectGatewayRestart = vi.fn<(opts?: unknown) => Promise<GatewayRestartSnapshot>>(
   async (_opts?: unknown) => ({
     runtime: { status: "running", pid: 1234 },
@@ -34,6 +37,29 @@ const inspectGatewayRestart = vi.fn<(opts?: unknown) => Promise<GatewayRestartSn
     healthy: true,
     staleGatewayPids: [],
   }),
+);
+const callGateway = vi.fn(
+  async (_opts?: unknown) =>
+    ({
+      runtimeVersion: "2026.4.15",
+      runtimeBuild: {
+        version: "2026.4.15",
+        commit: "bf388cfc90dddf2dd00264dfdbb3a142f8b53f86",
+        builtAt: "2026-04-17T03:13:13.169Z",
+        buildId: "build-disk",
+      },
+    }) satisfies { runtimeVersion: string; runtimeBuild: Record<string, string> },
+);
+const readBuildInfoForEntrypointPath = vi.fn<
+  (entrypointPath: string) => {
+    version?: string;
+    commit?: string;
+    builtAt?: string;
+    buildId?: string;
+  } | null
+>((_entrypointPath: string) => null);
+const readProcessStartedAt = vi.fn<(params?: unknown) => Promise<number | undefined>>(
+  async (_params?: unknown) => undefined,
 );
 const serviceReadCommand = vi.fn<
   (env?: NodeJS.ProcessEnv) => Promise<{
@@ -144,8 +170,25 @@ vi.mock("./probe.js", () => ({
   probeGatewayStatus: (opts: unknown) => callGatewayStatusProbe(opts),
 }));
 
+vi.mock("../../gateway/call.js", () => ({
+  callGateway: (opts: unknown) => callGateway(opts),
+}));
+
 vi.mock("./restart-health.js", () => ({
   inspectGatewayRestart: (opts: unknown) => inspectGatewayRestart(opts),
+}));
+
+vi.mock("../../version.js", async () => {
+  const actual = await vi.importActual<typeof import("../../version.js")>("../../version.js");
+  return {
+    ...actual,
+    readBuildInfoForEntrypointPath: (entrypointPath: string) =>
+      readBuildInfoForEntrypointPath(entrypointPath),
+  };
+});
+
+vi.mock("../../daemon/process-start.js", () => ({
+  readProcessStartedAt: (params: unknown) => readProcessStartedAt(params),
 }));
 
 describe("gatherDaemonStatus", () => {
@@ -167,10 +210,15 @@ describe("gatherDaemonStatus", () => {
     delete process.env.DAEMON_GATEWAY_TOKEN;
     delete process.env.DAEMON_GATEWAY_PASSWORD;
     callGatewayStatusProbe.mockClear();
+    callGateway.mockClear();
     loadGatewayTlsRuntime.mockClear();
     inspectGatewayRestart.mockClear();
+    readBuildInfoForEntrypointPath.mockReset();
+    readProcessStartedAt.mockReset();
     readConfigFileSnapshotCalls.mockClear();
     loadConfigCalls.mockClear();
+    readBuildInfoForEntrypointPath.mockReturnValue(null);
+    readProcessStartedAt.mockResolvedValue(undefined);
     daemonLoadedConfig = {
       gateway: {
         bind: "lan",
@@ -575,6 +623,128 @@ describe("gatherDaemonStatus", () => {
     expect(status.health).toEqual({
       healthy: false,
       staleGatewayPids: [9000],
+    });
+  });
+
+  it("flags install-required when service metadata lags behind the current dist build", async () => {
+    readBuildInfoForEntrypointPath.mockReturnValue({
+      version: "2026.4.15",
+      commit: "bf388cfc90dddf2dd00264dfdbb3a142f8b53f86",
+      builtAt: "2026-04-17T03:13:13.169Z",
+      buildId: "build-disk",
+    });
+    serviceReadCommand.mockResolvedValueOnce({
+      programArguments: ["/bin/node", "/srv/openclaw/dist/index.js", "gateway", "--port", "19001"],
+      environment: {
+        OPENCLAW_STATE_DIR: "/tmp/openclaw-daemon",
+        OPENCLAW_CONFIG_PATH: "/tmp/openclaw-daemon/openclaw.json",
+        OPENCLAW_SERVICE_VERSION: "2026.4.15",
+        OPENCLAW_SERVICE_COMMIT: "old-commit",
+        OPENCLAW_SERVICE_BUILT_AT: "2026-04-16T00:00:00.000Z",
+        OPENCLAW_SERVICE_BUILD_ID: "build-old",
+      },
+    });
+
+    const status = await gatherDaemonStatus({
+      rpc: {},
+      probe: true,
+      deep: false,
+    });
+
+    expect(status.build).toMatchObject({
+      installRequired: true,
+      runtimeSource: "status-rpc",
+      disk: {
+        buildId: "build-disk",
+      },
+      service: {
+        buildId: "build-old",
+      },
+      runtime: {
+        buildId: "build-disk",
+      },
+    });
+  });
+
+  it("flags restart-required when the running gateway reports an older build", async () => {
+    readBuildInfoForEntrypointPath.mockReturnValue({
+      version: "2026.4.15",
+      commit: "bf388cfc90dddf2dd00264dfdbb3a142f8b53f86",
+      builtAt: "2026-04-17T03:13:13.169Z",
+      buildId: "build-disk",
+    });
+    callGateway.mockResolvedValueOnce({
+      runtimeVersion: "2026.4.15",
+      runtimeBuild: {
+        version: "2026.4.15",
+        commit: "stale-commit",
+        builtAt: "2026-04-16T03:13:13.169Z",
+        buildId: "build-stale",
+      },
+    });
+    serviceReadCommand.mockResolvedValueOnce({
+      programArguments: ["/bin/node", "/srv/openclaw/dist/index.js", "gateway", "--port", "19001"],
+      environment: {
+        OPENCLAW_STATE_DIR: "/tmp/openclaw-daemon",
+        OPENCLAW_CONFIG_PATH: "/tmp/openclaw-daemon/openclaw.json",
+        OPENCLAW_SERVICE_VERSION: "2026.4.15",
+        OPENCLAW_SERVICE_COMMIT: "bf388cfc90dddf2dd00264dfdbb3a142f8b53f86",
+        OPENCLAW_SERVICE_BUILT_AT: "2026-04-17T03:13:13.169Z",
+        OPENCLAW_SERVICE_BUILD_ID: "build-disk",
+      },
+    });
+
+    const status = await gatherDaemonStatus({
+      rpc: {},
+      probe: true,
+      deep: false,
+    });
+
+    expect(status.build).toMatchObject({
+      restartRequired: true,
+      restartReason: "runtime-build-mismatch",
+      runtime: {
+        buildId: "build-stale",
+      },
+    });
+  });
+
+  it("falls back to process start time when RPC build details are unavailable", async () => {
+    readBuildInfoForEntrypointPath.mockReturnValue({
+      version: "2026.4.15",
+      commit: "bf388cfc90dddf2dd00264dfdbb3a142f8b53f86",
+      builtAt: "2026-04-17T03:13:13.169Z",
+      buildId: "build-disk",
+    });
+    readProcessStartedAt.mockResolvedValue(Date.parse("2026-04-17T03:10:00.000Z"));
+    serviceReadCommand.mockResolvedValueOnce({
+      programArguments: ["/bin/node", "/srv/openclaw/dist/index.js", "gateway", "--port", "19001"],
+      environment: {
+        OPENCLAW_STATE_DIR: "/tmp/openclaw-daemon",
+        OPENCLAW_CONFIG_PATH: "/tmp/openclaw-daemon/openclaw.json",
+        OPENCLAW_SERVICE_VERSION: "2026.4.15",
+        OPENCLAW_SERVICE_COMMIT: "bf388cfc90dddf2dd00264dfdbb3a142f8b53f86",
+        OPENCLAW_SERVICE_BUILT_AT: "2026-04-17T03:13:13.169Z",
+        OPENCLAW_SERVICE_BUILD_ID: "build-disk",
+      },
+    });
+    serviceReadRuntime.mockResolvedValueOnce({
+      status: "running",
+      pid: 4321,
+    });
+
+    const status = await gatherDaemonStatus({
+      rpc: {},
+      probe: false,
+      deep: false,
+    });
+
+    expect(callGateway).not.toHaveBeenCalled();
+    expect(readProcessStartedAt).toHaveBeenCalledWith({ pid: 4321 });
+    expect(status.build).toMatchObject({
+      runtimeSource: "process-start-time",
+      restartRequired: true,
+      restartReason: "runtime-started-before-disk-build",
     });
   });
 });

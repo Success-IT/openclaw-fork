@@ -386,6 +386,9 @@ describe("buildServiceEnvironment", () => {
     expect(env.OPENCLAW_SERVICE_MARKER).toBe("openclaw");
     expect(env.OPENCLAW_SERVICE_KIND).toBe("gateway");
     expect(typeof env.OPENCLAW_SERVICE_VERSION).toBe("string");
+    expect(typeof env.OPENCLAW_SERVICE_COMMIT).toBe("string");
+    expect(typeof env.OPENCLAW_SERVICE_BUILT_AT).toBe("string");
+    expect(typeof env.OPENCLAW_SERVICE_BUILD_ID).toBe("string");
     expect(env.OPENCLAW_SYSTEMD_UNIT).toBe("openclaw-gateway.service");
     expect(env.OPENCLAW_WINDOWS_TASK_NAME).toBe("OpenClaw Gateway");
     if (process.platform === "darwin") {
@@ -482,6 +485,8 @@ describe("buildNodeServiceEnvironment", () => {
       env: { HOME: "/home/user", OPENCLAW_GATEWAY_TOKEN: " node-token " },
     });
     expect(env.OPENCLAW_GATEWAY_TOKEN).toBe("node-token");
+    expect(typeof env.OPENCLAW_SERVICE_COMMIT).toBe("string");
+    expect(typeof env.OPENCLAW_SERVICE_BUILD_ID).toBe("string");
   });
 
   it("passes through OPENCLAW_ALLOW_INSECURE_PRIVATE_WS for node services", () => {

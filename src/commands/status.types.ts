@@ -1,6 +1,7 @@
 import type { ChannelId } from "../channels/plugins/types.public.js";
 import type { TaskAuditSummary } from "../tasks/task-registry.audit.js";
 import type { TaskRegistrySummary } from "../tasks/task-registry.types.js";
+import type { RuntimeBuildInfo } from "../version.js";
 
 export type SessionStatus = {
   agentId?: string;
@@ -39,6 +40,7 @@ export type HeartbeatStatus = {
 
 export type StatusSummary = {
   runtimeVersion?: string | null;
+  runtimeBuild?: RuntimeBuildInfo;
   linkChannel?: {
     id: ChannelId;
     label: string;

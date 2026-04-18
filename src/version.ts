@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import { normalizeOptionalString } from "./shared/string-coerce.js";
 
 declare const __OPENCLAW_VERSION__: string | undefined;
@@ -16,6 +18,27 @@ const BUILD_INFO_CANDIDATES = [
   "../../build-info.json",
   "./build-info.json",
 ] as const;
+
+export type RuntimeBuildInfo = {
+  version?: string;
+  commit?: string;
+  builtAt?: string;
+  buildId?: string;
+};
+
+function deriveBuildId(input: {
+  version?: string;
+  commit?: string;
+  builtAt?: string;
+}): string | undefined {
+  if (!input.commit && !input.builtAt) {
+    return undefined;
+  }
+  return createHash("sha1")
+    .update(`${input.version ?? ""}\0${input.commit ?? ""}\0${input.builtAt ?? ""}`)
+    .digest("hex")
+    .slice(0, 12);
+}
 
 function readVersionFromJsonCandidates(
   moduleUrl: string,
@@ -45,6 +68,63 @@ function readVersionFromJsonCandidates(
   }
 }
 
+function normalizeBuildInfo(input: unknown): RuntimeBuildInfo | null {
+  if (!input || typeof input !== "object") {
+    return null;
+  }
+  const record = input as {
+    version?: unknown;
+    commit?: unknown;
+    builtAt?: unknown;
+    buildId?: unknown;
+  };
+  const version = normalizeOptionalString(
+    typeof record.version === "string" ? record.version : undefined,
+  );
+  const commit = normalizeOptionalString(
+    typeof record.commit === "string" ? record.commit : undefined,
+  );
+  const builtAt = normalizeOptionalString(
+    typeof record.builtAt === "string" ? record.builtAt : undefined,
+  );
+  const explicitBuildId = normalizeOptionalString(
+    typeof record.buildId === "string" ? record.buildId : undefined,
+  );
+  const buildId = explicitBuildId ?? deriveBuildId({ version, commit, builtAt });
+  if (!version && !commit && !builtAt && !buildId) {
+    return null;
+  }
+  return {
+    ...(version ? { version } : {}),
+    ...(commit ? { commit } : {}),
+    ...(builtAt ? { builtAt } : {}),
+    ...(buildId ? { buildId } : {}),
+  };
+}
+
+function readBuildInfoFromJsonCandidates(
+  moduleUrl: string,
+  candidates: readonly string[],
+): RuntimeBuildInfo | null {
+  try {
+    const require = createRequire(moduleUrl);
+    for (const candidate of candidates) {
+      try {
+        const parsed = require(candidate) as unknown;
+        const info = normalizeBuildInfo(parsed);
+        if (info) {
+          return info;
+        }
+      } catch {
+        // ignore missing or unreadable candidate
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
   for (const value of values) {
     const trimmed = normalizeOptionalString(value);
@@ -62,7 +142,54 @@ export function readVersionFromPackageJsonForModuleUrl(moduleUrl: string): strin
 }
 
 export function readVersionFromBuildInfoForModuleUrl(moduleUrl: string): string | null {
-  return readVersionFromJsonCandidates(moduleUrl, BUILD_INFO_CANDIDATES);
+  return readBuildInfoForModuleUrl(moduleUrl)?.version ?? null;
+}
+
+export function readBuildInfoForModuleUrl(moduleUrl: string): RuntimeBuildInfo | null {
+  return readBuildInfoFromJsonCandidates(moduleUrl, BUILD_INFO_CANDIDATES);
+}
+
+export function readBuildInfoForEntrypointPath(entrypointPath: string): RuntimeBuildInfo | null {
+  try {
+    return readBuildInfoForModuleUrl(pathToFileURL(entrypointPath).href);
+  } catch {
+    return null;
+  }
+}
+
+function readAdjacentDistBuildInfoForModuleUrl(moduleUrl: string): RuntimeBuildInfo | null {
+  const candidates = ["../dist/index.js", "../dist/entry.js"] as const;
+  for (const candidate of candidates) {
+    try {
+      const info = readBuildInfoForModuleUrl(new URL(candidate, moduleUrl).href);
+      if (info) {
+        return info;
+      }
+    } catch {
+      // ignore malformed or missing adjacent dist paths
+    }
+  }
+  return null;
+}
+
+export function resolveComparableBuildIdentity(
+  info: RuntimeBuildInfo | null | undefined,
+): string | null {
+  const normalized = normalizeBuildInfo(info);
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.buildId) {
+    return `build:${normalized.buildId}`;
+  }
+  if (!normalized.commit && !normalized.builtAt) {
+    return null;
+  }
+  return JSON.stringify([
+    normalized.version ?? "",
+    normalized.commit ?? "",
+    normalized.builtAt ?? "",
+  ]);
 }
 
 export function resolveVersionFromModuleUrl(moduleUrl: string): string | null {
@@ -159,3 +286,16 @@ export const VERSION = resolveBinaryVersion({
   injectedVersion: typeof __OPENCLAW_VERSION__ === "string" ? __OPENCLAW_VERSION__ : undefined,
   bundledVersion: process.env.OPENCLAW_BUNDLED_VERSION,
 });
+
+const staticBuildInfo =
+  readBuildInfoForModuleUrl(import.meta.url) ??
+  readAdjacentDistBuildInfoForModuleUrl(import.meta.url);
+
+// Capture the current build identity once at module load so a long-lived gateway
+// process keeps reporting the build it actually booted with, even if dist/ changes later.
+export const CURRENT_BUILD_INFO = Object.freeze({
+  version: staticBuildInfo?.version ?? VERSION,
+  ...(staticBuildInfo?.commit ? { commit: staticBuildInfo.commit } : {}),
+  ...(staticBuildInfo?.builtAt ? { builtAt: staticBuildInfo.builtAt } : {}),
+  ...(staticBuildInfo?.buildId ? { buildId: staticBuildInfo.buildId } : {}),
+}) satisfies RuntimeBuildInfo;

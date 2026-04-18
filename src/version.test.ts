@@ -4,11 +4,14 @@ import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSuiteTempRootTracker } from "./test-helpers/temp-dir.js";
 import {
+  readBuildInfoForEntrypointPath,
+  readBuildInfoForModuleUrl,
   VERSION,
   readVersionFromBuildInfoForModuleUrl,
   resolveCompatibilityHostVersion,
   readVersionFromPackageJsonForModuleUrl,
   resolveBinaryVersion,
+  resolveComparableBuildIdentity,
   resolveRuntimeServiceVersion,
   resolveUsableRuntimeVersion,
   resolveVersionFromModuleUrl,
@@ -73,11 +76,43 @@ describe("version resolution", () => {
 
   it("falls back to build-info when package metadata is unavailable", async () => {
     await withVersionFixtureDir(async (root) => {
-      await writeJsonFixture(root, "build-info.json", { version: "4.5.6" });
+      await writeJsonFixture(root, "build-info.json", {
+        version: "4.5.6",
+        commit: "abc123",
+        builtAt: "2026-04-18T00:00:00.000Z",
+        buildId: "build-123",
+      });
       const moduleUrl = await ensureModuleFixture(root);
       expect(readVersionFromPackageJsonForModuleUrl(moduleUrl)).toBeNull();
       expect(readVersionFromBuildInfoForModuleUrl(moduleUrl)).toBe("4.5.6");
+      expect(readBuildInfoForModuleUrl(moduleUrl)).toEqual({
+        version: "4.5.6",
+        commit: "abc123",
+        builtAt: "2026-04-18T00:00:00.000Z",
+        buildId: "build-123",
+      });
       expect(resolveVersionFromModuleUrl(moduleUrl)).toBe("4.5.6");
+    });
+  });
+
+  it("reads build-info relative to a dist entrypoint path", async () => {
+    await withTempDir({ prefix: "openclaw-version-" }, async (root) => {
+      await writeJsonFixture(root, "dist/build-info.json", {
+        version: "2026.4.15",
+        commit: "bf388cfc90dddf2dd00264dfdbb3a142f8b53f86",
+        builtAt: "2026-04-17T03:13:13.169Z",
+        buildId: "build-deadbeef",
+      });
+      const entrypointPath = path.join(root, "dist", "index.js");
+      await fs.mkdir(path.dirname(entrypointPath), { recursive: true });
+      await fs.writeFile(entrypointPath, "", "utf8");
+
+      expect(readBuildInfoForEntrypointPath(entrypointPath)).toEqual({
+        version: "2026.4.15",
+        commit: "bf388cfc90dddf2dd00264dfdbb3a142f8b53f86",
+        builtAt: "2026-04-17T03:13:13.169Z",
+        buildId: "build-deadbeef",
+      });
     });
   });
 
@@ -100,7 +135,25 @@ describe("version resolution", () => {
   it("returns null for malformed module URLs", () => {
     expect(readVersionFromPackageJsonForModuleUrl("not-a-valid-url")).toBeNull();
     expect(readVersionFromBuildInfoForModuleUrl("not-a-valid-url")).toBeNull();
+    expect(readBuildInfoForModuleUrl("not-a-valid-url")).toBeNull();
     expect(resolveVersionFromModuleUrl("not-a-valid-url")).toBeNull();
+  });
+
+  it("builds a comparable identity from buildId or commit metadata", () => {
+    expect(
+      resolveComparableBuildIdentity({
+        version: "2026.4.15",
+        buildId: "build-123",
+      }),
+    ).toBe("build:build-123");
+    expect(
+      resolveComparableBuildIdentity({
+        version: "2026.4.15",
+        commit: "abc123",
+        builtAt: "2026-04-18T00:00:00.000Z",
+      }),
+    ).toMatch(/^build:/);
+    expect(resolveComparableBuildIdentity({ version: "2026.4.15" })).toBeNull();
   });
 
   it("resolves binary version with explicit precedence", async () => {

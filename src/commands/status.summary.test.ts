@@ -104,6 +104,12 @@ vi.mock("../version.js", async () => {
   const actual = await vi.importActual<typeof import("../version.js")>("../version.js");
   return {
     ...actual,
+    CURRENT_BUILD_INFO: {
+      version: "2026.3.8",
+      commit: "bf388cfc90dddf2dd00264dfdbb3a142f8b53f86",
+      builtAt: "2026-04-17T03:13:13.169Z",
+      buildId: "build-deadbeef",
+    },
     resolveRuntimeServiceVersion: vi.fn(() => "2026.3.8"),
   };
 });
@@ -133,6 +139,12 @@ describe("getStatusSummary", () => {
     const summary = await getStatusSummary();
 
     expect(summary.runtimeVersion).toBe("2026.3.8");
+    expect(summary.runtimeBuild).toEqual({
+      version: "2026.3.8",
+      commit: "bf388cfc90dddf2dd00264dfdbb3a142f8b53f86",
+      builtAt: "2026-04-17T03:13:13.169Z",
+      buildId: "build-deadbeef",
+    });
     expect(summary.heartbeat.defaultAgentId).toBe("main");
     expect(summary.channelSummary).toEqual(["ok"]);
     expect(summary.tasks.active).toBe(0);

@@ -15,6 +15,7 @@ import { isWSLEnv } from "../../infra/wsl.js";
 import { defaultRuntime } from "../../runtime.js";
 import { colorize } from "../../terminal/theme.js";
 import { shortenHomePath } from "../../utils.js";
+import type { RuntimeBuildInfo } from "../../version.js";
 import { formatCliCommand } from "../command-format.js";
 import {
   createCliStatusTextStyles,
@@ -59,6 +60,25 @@ function formatCapabilityLabel(capability?: string) {
     return null;
   }
   return capability.replaceAll("_", "-");
+}
+
+function formatBuildInfo(info: RuntimeBuildInfo | undefined): string | null {
+  if (!info) {
+    return null;
+  }
+  const parts: string[] = [];
+  if (info.version) {
+    parts.push(`v${info.version}`);
+  }
+  if (info.commit) {
+    parts.push(info.commit.slice(0, 10));
+  } else if (info.buildId) {
+    parts.push(`build:${info.buildId.slice(0, 10)}`);
+  }
+  if (info.builtAt) {
+    parts.push(info.builtAt.replace(/\.\d{3}Z$/, "Z"));
+  }
+  return parts.length > 0 ? parts.join(" ") : null;
 }
 
 export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean }) {
@@ -178,6 +198,40 @@ export function printDaemonStatus(status: DaemonStatus, opts: { json: boolean })
   if (runtimeLine) {
     const runtimeColor = resolveRuntimeStatusColor(service.runtime?.status);
     defaultRuntime.log(`${label("Runtime:")} ${colorize(rich, runtimeColor, runtimeLine)}`);
+  }
+  if (status.build) {
+    const diskBuild = formatBuildInfo(status.build.disk);
+    const serviceBuild = formatBuildInfo(status.build.service);
+    const runtimeBuild = formatBuildInfo(status.build.runtime);
+    const buildParts = [
+      diskBuild ? `disk ${diskBuild}` : null,
+      serviceBuild ? `service ${serviceBuild}` : null,
+      runtimeBuild ? `runtime ${runtimeBuild}` : null,
+    ].filter((value): value is string => Boolean(value));
+    if (buildParts.length > 0) {
+      defaultRuntime.log(`${label("Builds:")} ${infoText(buildParts.join(" | "))}`);
+    } else if (status.build.runtimeSource === "process-start-time") {
+      defaultRuntime.log(
+        `${label("Builds:")} ${warnText("runtime build unknown via RPC; using process start time fallback")}`,
+      );
+    }
+    if (status.build.installRequired) {
+      defaultRuntime.error(errorText("Service metadata does not match the current dist build."));
+      defaultRuntime.error(
+        errorText(`Fix: run ${formatCliCommand("openclaw gateway install --force")}.`),
+      );
+    }
+    if (status.build.restartRequired) {
+      const restartMessage =
+        status.build.restartReason === "runtime-started-before-disk-build"
+          ? "Gateway process started before the current dist build was written."
+          : "Gateway runtime build does not match the current dist build.";
+      defaultRuntime.error(errorText(restartMessage));
+      defaultRuntime.error(errorText(`Fix: run ${formatCliCommand("openclaw gateway restart")}.`));
+    }
+    if (status.build.installRequired || status.build.restartRequired) {
+      spacer();
+    }
   }
 
   if (rpc && !rpc.ok && service.loaded && service.runtime?.status === "running") {

@@ -1,3 +1,5 @@
+import path from "node:path";
+import type { StatusSummary } from "../../commands/status.types.js";
 import {
   createConfigIO,
   resolveConfigPath,
@@ -11,7 +13,9 @@ import type {
   GatewayControlUiConfig,
 } from "../../config/types.js";
 import { readLastGatewayErrorLine } from "../../daemon/diagnostics.js";
+import { isGatewayDistEntrypointPath } from "../../daemon/gateway-entrypoint.js";
 import type { FindExtraGatewayServicesOptions } from "../../daemon/inspect.js";
+import { readProcessStartedAt } from "../../daemon/process-start.js";
 import type { ServiceConfigAudit } from "../../daemon/service-audit.js";
 import type { GatewayServiceRuntime } from "../../daemon/service-runtime.js";
 import { resolveGatewayService } from "../../daemon/service.js";
@@ -28,6 +32,11 @@ import {
   type PortUsageStatus,
 } from "../../infra/ports.js";
 import { resolveConfiguredLogFilePath } from "../../logging/log-file-path.js";
+import {
+  readBuildInfoForEntrypointPath,
+  resolveComparableBuildIdentity,
+  type RuntimeBuildInfo,
+} from "../../version.js";
 import { normalizeListenerAddress, parsePortFromArgs, pickProbeHostForBind } from "./shared.js";
 import type { GatewayRpcOpts } from "./types.js";
 
@@ -72,6 +81,16 @@ type ResolvedGatewayStatus = {
   probeUrlOverride: string | null;
 };
 
+type DaemonBuildSummary = {
+  disk?: RuntimeBuildInfo;
+  service?: RuntimeBuildInfo;
+  runtime?: RuntimeBuildInfo;
+  runtimeSource?: "status-rpc" | "process-start-time";
+  installRequired?: boolean;
+  restartRequired?: boolean;
+  restartReason?: "runtime-build-mismatch" | "runtime-started-before-disk-build";
+};
+
 let gatewayProbeAuthModulePromise:
   | Promise<typeof import("../../gateway/probe-auth.js")>
   | undefined;
@@ -80,6 +99,7 @@ let serviceAuditModulePromise: Promise<typeof import("../../daemon/service-audit
 let gatewayTlsModulePromise: Promise<typeof import("../../infra/tls/gateway.js")> | undefined;
 let daemonProbeModulePromise: Promise<typeof import("./probe.js")> | undefined;
 let restartHealthModulePromise: Promise<typeof import("./restart-health.js")> | undefined;
+let gatewayCallModulePromise: Promise<typeof import("../../gateway/call.js")> | undefined;
 
 function loadGatewayProbeAuthModule() {
   gatewayProbeAuthModulePromise ??= import("../../gateway/probe-auth.js");
@@ -111,6 +131,11 @@ function loadRestartHealthModule() {
   return restartHealthModulePromise;
 }
 
+function loadGatewayCallModule() {
+  gatewayCallModulePromise ??= import("../../gateway/call.js");
+  return gatewayCallModulePromise;
+}
+
 function resolveSnapshotRuntimeConfig(snapshot: ConfigFileSnapshot | null): OpenClawConfig | null {
   if (!snapshot?.valid || !snapshot.runtimeConfig) {
     return null;
@@ -128,6 +153,81 @@ function appendProbeNote(
   }
   return [...new Set(values)].join(" ");
 }
+
+function readServiceBuildInfo(
+  env: Record<string, string> | undefined,
+): RuntimeBuildInfo | undefined {
+  const version = trimToUndefined(env?.OPENCLAW_SERVICE_VERSION);
+  const commit = trimToUndefined(env?.OPENCLAW_SERVICE_COMMIT);
+  const builtAt = trimToUndefined(env?.OPENCLAW_SERVICE_BUILT_AT);
+  const buildId = trimToUndefined(env?.OPENCLAW_SERVICE_BUILD_ID);
+  if (!version && !commit && !builtAt && !buildId) {
+    return undefined;
+  }
+  return {
+    ...(version ? { version } : {}),
+    ...(commit ? { commit } : {}),
+    ...(builtAt ? { builtAt } : {}),
+    ...(buildId ? { buildId } : {}),
+  };
+}
+
+function readDiskBuildInfo(programArguments: string[] | undefined): RuntimeBuildInfo | undefined {
+  if (!programArguments?.length) {
+    return undefined;
+  }
+  for (const arg of programArguments) {
+    if (!arg?.trim() || !isGatewayDistEntrypointPath(arg)) {
+      continue;
+    }
+    const info = readBuildInfoForEntrypointPath(path.resolve(arg));
+    if (info) {
+      return info;
+    }
+  }
+  return undefined;
+}
+
+type BuildComparison = "match" | "mismatch" | "unknown";
+
+function compareBuildInfo(
+  left: RuntimeBuildInfo | undefined,
+  right: RuntimeBuildInfo | undefined,
+): BuildComparison {
+  const leftIdentity = resolveComparableBuildIdentity(left);
+  const rightIdentity = resolveComparableBuildIdentity(right);
+  if (leftIdentity && rightIdentity) {
+    return leftIdentity === rightIdentity ? "match" : "mismatch";
+  }
+  if (left?.commit && right?.commit && left.commit !== right.commit) {
+    return "mismatch";
+  }
+  return "unknown";
+}
+
+function resolveRuntimeBuildInfo(
+  summary: Pick<StatusSummary, "runtimeVersion" | "runtimeBuild"> | null,
+): RuntimeBuildInfo | undefined {
+  if (!summary) {
+    return undefined;
+  }
+  const version = trimToUndefined(
+    summary.runtimeBuild?.version ?? summary.runtimeVersion ?? undefined,
+  );
+  const commit = trimToUndefined(summary.runtimeBuild?.commit);
+  const builtAt = trimToUndefined(summary.runtimeBuild?.builtAt);
+  const buildId = trimToUndefined(summary.runtimeBuild?.buildId);
+  if (!version && !commit && !builtAt && !buildId) {
+    return undefined;
+  }
+  return {
+    ...(version ? { version } : {}),
+    ...(commit ? { commit } : {}),
+    ...(builtAt ? { builtAt } : {}),
+    ...(buildId ? { buildId } : {}),
+  };
+}
+
 export type DaemonStatus = {
   logFile?: string;
   service: {
@@ -180,6 +280,7 @@ export type DaemonStatus = {
     healthy: boolean;
     staleGatewayPids: number[];
   };
+  build?: DaemonBuildSummary;
   extraServices: Array<{ label: string; detail: string; scope: string }>;
 };
 
@@ -359,7 +460,9 @@ export async function gatherDaemonStatus(
     : process.env;
   const [loaded, runtime] = await Promise.all([
     service.isLoaded({ env: serviceEnv }).catch(() => false),
-    service.readRuntime(serviceEnv).catch((err) => ({ status: "unknown", detail: String(err) })),
+    service
+      .readRuntime(serviceEnv)
+      .catch((err): GatewayServiceRuntime => ({ status: "unknown", detail: String(err) })),
   ]);
   const configAudit = command
     ? await loadServiceAuditModule().then(({ auditGatewayServiceConfig }) =>
@@ -448,6 +551,24 @@ export async function gatherDaemonStatus(
   if (rpc?.ok) {
     rpcAuthWarning = undefined;
   }
+  const runtimeStatusSummary =
+    opts.probe && rpc?.ok
+      ? await loadGatewayCallModule()
+          .then(({ callGateway }) =>
+            callGateway({
+              method: "status",
+              url: gateway.probeUrl,
+              token: daemonProbeAuth?.token,
+              password: daemonProbeAuth?.password,
+              tlsFingerprint:
+                shouldUseLocalTlsRuntime && tlsRuntime?.enabled
+                  ? tlsRuntime.fingerprintSha256
+                  : undefined,
+              timeoutMs,
+            }),
+          )
+          .catch(() => null)
+      : null;
   const health =
     opts.probe && loaded && rpc?.ok !== true
       ? await loadRestartHealthModule()
@@ -465,6 +586,43 @@ export async function gatherDaemonStatus(
   if (loaded && runtime?.status === "running" && portStatus && portStatus.status !== "busy") {
     lastError = (await readLastGatewayErrorLine(mergedDaemonEnv as NodeJS.ProcessEnv)) ?? undefined;
   }
+
+  const diskBuild = readDiskBuildInfo(command?.programArguments);
+  const serviceBuild = readServiceBuildInfo(command?.environment);
+  const runtimeBuild = resolveRuntimeBuildInfo(runtimeStatusSummary);
+  const installRequired = compareBuildInfo(diskBuild, serviceBuild) === "mismatch";
+  const runtimeBuildComparison = compareBuildInfo(diskBuild, runtimeBuild);
+  const runtimeBuiltAtMs = diskBuild?.builtAt ? Date.parse(diskBuild.builtAt) : Number.NaN;
+  const runtimeStartedAt =
+    !runtimeBuild &&
+    runtime?.status === "running" &&
+    typeof runtime.pid === "number" &&
+    Number.isFinite(runtimeBuiltAtMs)
+      ? await readProcessStartedAt({ pid: runtime.pid }).catch(() => undefined)
+      : undefined;
+  const startedBeforeCurrentBuild =
+    typeof runtimeStartedAt === "number" &&
+    Number.isFinite(runtimeBuiltAtMs) &&
+    runtimeStartedAt + 1_000 < runtimeBuiltAtMs;
+  const restartReason =
+    runtimeBuildComparison === "mismatch"
+      ? "runtime-build-mismatch"
+      : startedBeforeCurrentBuild
+        ? "runtime-started-before-disk-build"
+        : undefined;
+  const build =
+    diskBuild || serviceBuild || runtimeBuild || installRequired || restartReason
+      ? ({
+          ...(diskBuild ? { disk: diskBuild } : {}),
+          ...(serviceBuild ? { service: serviceBuild } : {}),
+          ...(runtimeBuild ? { runtime: runtimeBuild, runtimeSource: "status-rpc" as const } : {}),
+          ...(!runtimeBuild && typeof runtimeStartedAt === "number"
+            ? { runtimeSource: "process-start-time" as const }
+            : {}),
+          ...(installRequired ? { installRequired: true } : {}),
+          ...(restartReason ? { restartRequired: true, restartReason } : {}),
+        } satisfies DaemonBuildSummary)
+      : undefined;
 
   return {
     logFile: resolveConfiguredLogFilePath(cliCfg),
@@ -503,6 +661,7 @@ export async function gatherDaemonStatus(
           },
         }
       : {}),
+    ...(build ? { build } : {}),
     extraServices,
   };
 }

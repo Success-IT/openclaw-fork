@@ -6,7 +6,7 @@ import {
 } from "../bootstrap/node-extra-ca-certs.js";
 import { resolveNodeStartupTlsEnvironment } from "../bootstrap/node-startup-env.js";
 import { normalizeOptionalString } from "../shared/string-coerce.js";
-import { VERSION } from "../version.js";
+import { CURRENT_BUILD_INFO, VERSION } from "../version.js";
 import {
   GATEWAY_SERVICE_KIND,
   GATEWAY_SERVICE_MARKER,
@@ -303,6 +303,9 @@ export function buildServiceEnvironment(params: {
     OPENCLAW_SERVICE_MARKER: GATEWAY_SERVICE_MARKER,
     OPENCLAW_SERVICE_KIND: GATEWAY_SERVICE_KIND,
     OPENCLAW_SERVICE_VERSION: VERSION,
+    OPENCLAW_SERVICE_COMMIT: CURRENT_BUILD_INFO.commit,
+    OPENCLAW_SERVICE_BUILT_AT: CURRENT_BUILD_INFO.builtAt,
+    OPENCLAW_SERVICE_BUILD_ID: CURRENT_BUILD_INFO.buildId,
   };
 }
 
@@ -334,6 +337,9 @@ export function buildNodeServiceEnvironment(params: {
     OPENCLAW_SERVICE_MARKER: NODE_SERVICE_MARKER,
     OPENCLAW_SERVICE_KIND: NODE_SERVICE_KIND,
     OPENCLAW_SERVICE_VERSION: VERSION,
+    OPENCLAW_SERVICE_COMMIT: CURRENT_BUILD_INFO.commit,
+    OPENCLAW_SERVICE_BUILT_AT: CURRENT_BUILD_INFO.builtAt,
+    OPENCLAW_SERVICE_BUILD_ID: CURRENT_BUILD_INFO.buildId,
   };
 }
 

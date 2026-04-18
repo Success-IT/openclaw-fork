@@ -108,6 +108,24 @@ describe("printDaemonStatus", () => {
           healthy: false,
           staleGatewayPids: [9000],
         },
+        build: {
+          disk: {
+            version: "2026.4.15",
+            commit: "bf388cfc90dddf2dd00264dfdbb3a142f8b53f86",
+            builtAt: "2026-04-17T03:13:13.169Z",
+            buildId: "build-disk",
+          },
+          service: {
+            version: "2026.4.15",
+            commit: "old-commit",
+            builtAt: "2026-04-16T03:13:13.169Z",
+            buildId: "build-old",
+          },
+          installRequired: true,
+          restartRequired: true,
+          restartReason: "runtime-started-before-disk-build",
+          runtimeSource: "process-start-time",
+        },
         extraServices: [],
       },
       { json: false },
@@ -118,6 +136,12 @@ describe("printDaemonStatus", () => {
     );
     expect(runtime.error).toHaveBeenCalledWith(
       expect.stringContaining(formatCliCommand("openclaw gateway restart")),
+    );
+    expect(runtime.error).toHaveBeenCalledWith(
+      expect.stringContaining("Service metadata does not match the current dist build"),
+    );
+    expect(runtime.error).toHaveBeenCalledWith(
+      expect.stringContaining(formatCliCommand("openclaw gateway install --force")),
     );
   });
 

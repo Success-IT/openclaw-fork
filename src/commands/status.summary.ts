@@ -10,7 +10,7 @@ import { peekSystemEvents } from "../infra/system-events.js";
 import { hasConfiguredChannelsForReadOnlyScope } from "../plugins/channel-plugin-ids.js";
 import { parseAgentSessionKey } from "../routing/session-key.js";
 import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
-import { resolveRuntimeServiceVersion } from "../version.js";
+import { CURRENT_BUILD_INFO, resolveRuntimeServiceVersion } from "../version.js";
 import type { HeartbeatStatus, SessionStatus, StatusSummary } from "./status.types.js";
 
 let channelSummaryModulePromise: Promise<typeof import("../infra/channel-summary.js")> | undefined;
@@ -267,6 +267,7 @@ export async function getStatusSummary(
 
   const summary: StatusSummary = {
     runtimeVersion: resolveRuntimeServiceVersion(process.env),
+    runtimeBuild: CURRENT_BUILD_INFO,
     linkChannel: linkContext
       ? {
           id: linkContext.plugin.id,

@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,11 +37,18 @@ const resolveCommit = () => {
 
 const version = readPackageVersion();
 const commit = resolveCommit();
+const builtAt = new Date().toISOString();
+
+const buildId = createHash("sha1")
+  .update(`${version ?? ""}\0${commit ?? ""}\0${builtAt}`)
+  .digest("hex")
+  .slice(0, 12);
 
 const buildInfo = {
   version,
   commit,
-  builtAt: new Date().toISOString(),
+  builtAt,
+  buildId,
 };
 
 fs.mkdirSync(distDir, { recursive: true });
