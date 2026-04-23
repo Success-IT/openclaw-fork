@@ -16,10 +16,12 @@ import {
   isSummarizationEnabled,
   isTtsEnabled,
   isTtsProviderConfigured,
+  resolveTtsAutoMode,
   resolveTtsConfig,
   resolveTtsPrefsPath,
   setLastTtsAttempt,
   setSummarizationEnabled,
+  setTtsAutoMode,
   setTtsEnabled,
   setTtsMaxLength,
   setTtsProvider,
@@ -75,8 +77,11 @@ function ttsUsage(): ReplyPayload {
     text:
       `🔊 **TTS (Text-to-Speech) Help**\n\n` +
       `**Commands:**\n` +
-      `• /tts on — Enable automatic TTS for replies\n` +
+      `• /tts on — Enable automatic TTS for all replies (alias: /tts always)\n` +
       `• /tts off — Disable TTS\n` +
+      `• /tts always — Speak every reply\n` +
+      `• /tts inbound — Speak only after inbound audio messages\n` +
+      `• /tts tagged — Speak only when explicitly tagged\n` +
       `• /tts status — Show current settings\n` +
       `• /tts provider [name] — View/change provider\n` +
       `• /tts limit [number] — View/change text limit\n` +
@@ -120,12 +125,27 @@ export const handleTtsCommands: CommandHandler = async (params, allowTextCommand
     return { shouldContinue: false, reply: ttsUsage() };
   }
 
-  if (action === "on") {
-    setTtsEnabled(prefsPath, true);
-    return { shouldContinue: false, reply: { text: "🔊 TTS enabled." } };
-  }
-
-  if (action === "off") {
+  if (
+    action === "on" ||
+    action === "off" ||
+    action === "always" ||
+    action === "inbound" ||
+    action === "tagged"
+  ) {
+    const nextMode = action === "on" ? "always" : action;
+    if (nextMode === "always" || nextMode === "inbound" || nextMode === "tagged") {
+      setTtsAutoMode(prefsPath, nextMode);
+      const description =
+        nextMode === "always"
+          ? "every reply"
+          : nextMode === "inbound"
+            ? "voice replies after inbound audio only"
+            : "explicitly tagged replies only";
+      return {
+        shouldContinue: false,
+        reply: { text: `🔊 TTS mode set to ${nextMode} (${description}).` },
+      };
+    }
     setTtsEnabled(prefsPath, false);
     return { shouldContinue: false, reply: { text: "🔇 TTS disabled." } };
   }
@@ -297,6 +317,7 @@ export const handleTtsCommands: CommandHandler = async (params, allowTextCommand
 
   if (action === "status") {
     const enabled = isTtsEnabled(config, prefsPath);
+    const autoMode = resolveTtsAutoMode({ config, prefsPath });
     const provider = getTtsProvider(config, prefsPath);
     const hasKey = isTtsProviderConfigured(config, provider, params.cfg);
     const maxLength = getTtsMaxLength(prefsPath);
@@ -305,6 +326,8 @@ export const handleTtsCommands: CommandHandler = async (params, allowTextCommand
     const lines = [
       "📊 TTS status",
       `State: ${enabled ? "✅ enabled" : "❌ disabled"}`,
+      `Auto mode: ${autoMode}`,
+      `Chat override: ${params.sessionEntry?.ttsAuto ?? "default"}`,
       `Provider: ${provider} (${hasKey ? "✅ configured" : "❌ not configured"})`,
       `Text limit: ${maxLength} chars`,
       `Auto-summary: ${summarize ? "on" : "off"}`,

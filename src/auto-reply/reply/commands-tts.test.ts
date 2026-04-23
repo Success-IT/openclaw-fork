@@ -9,10 +9,12 @@ const ttsMocks = vi.hoisted(() => ({
   isSummarizationEnabled: vi.fn(),
   isTtsEnabled: vi.fn(),
   isTtsProviderConfigured: vi.fn(),
+  resolveTtsAutoMode: vi.fn(),
   resolveTtsConfig: vi.fn(),
   resolveTtsPrefsPath: vi.fn(),
   setLastTtsAttempt: vi.fn(),
   setSummarizationEnabled: vi.fn(),
+  setTtsAutoMode: vi.fn(),
   setTtsEnabled: vi.fn(),
   setTtsMaxLength: vi.fn(),
   setTtsProvider: vi.fn(),
@@ -54,6 +56,7 @@ describe("handleTtsCommands status fallback reporting", () => {
   beforeEach(() => {
     ttsMocks.resolveTtsConfig.mockReturnValue({});
     ttsMocks.resolveTtsPrefsPath.mockReturnValue("/tmp/tts-prefs.json");
+    ttsMocks.resolveTtsAutoMode.mockReturnValue("always");
     ttsMocks.isTtsEnabled.mockReturnValue(true);
     ttsMocks.getTtsProvider.mockReturnValue(PRIMARY_TTS_PROVIDER);
     ttsMocks.isTtsProviderConfigured.mockReturnValue(true);
@@ -188,5 +191,30 @@ describe("handleTtsCommands status fallback reporting", () => {
     );
     expect(result?.shouldContinue).toBe(false);
     expect(result?.reply?.text).toContain("TTS status");
+  });
+
+  it("supports the documented inbound mode toggle", async () => {
+    const result = await handleTtsCommands(buildTtsParams("/tts inbound"), true);
+
+    expect(result?.shouldContinue).toBe(false);
+    expect(ttsMocks.setTtsAutoMode).toHaveBeenCalledWith("/tmp/tts-prefs.json", "inbound");
+    expect(result?.reply?.text).toContain("TTS mode set to inbound");
+  });
+
+  it("keeps /tts on as an alias for always mode", async () => {
+    const result = await handleTtsCommands(buildTtsParams("/tts on"), true);
+
+    expect(result?.shouldContinue).toBe(false);
+    expect(ttsMocks.setTtsAutoMode).toHaveBeenCalledWith("/tmp/tts-prefs.json", "always");
+    expect(result?.reply?.text).toContain("TTS mode set to always");
+  });
+
+  it("shows the resolved auto mode in status output", async () => {
+    ttsMocks.resolveTtsAutoMode.mockReturnValue("tagged");
+
+    const result = await handleTtsCommands(buildTtsParams("/tts status"), true);
+
+    expect(result?.shouldContinue).toBe(false);
+    expect(result?.reply?.text).toContain("Auto mode: tagged");
   });
 });
