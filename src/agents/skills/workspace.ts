@@ -765,6 +765,15 @@ function resolveEffectiveWorkspaceSkillFilter(
   return resolveEffectiveAgentSkillFilter(opts.config, opts.agentId);
 }
 
+function shouldSkipWorkspaceSkillDiscovery(opts?: WorkspaceSkillBuildOptions): boolean {
+  const effectiveSkillFilter = resolveEffectiveWorkspaceSkillFilter(opts);
+  if (effectiveSkillFilter !== undefined && effectiveSkillFilter.length === 0) {
+    return true;
+  }
+  const limits = opts?.config?.skills?.limits;
+  return limits?.maxSkillsInPrompt === 0 && limits.maxSkillsPromptChars === 0;
+}
+
 function resolveWorkspaceSkillPromptState(
   workspaceDir: string,
   opts?: WorkspaceSkillBuildOptions,
@@ -773,6 +782,9 @@ function resolveWorkspaceSkillPromptState(
   prompt: string;
   resolvedSkills: Skill[];
 } {
+  if (!opts?.entries && shouldSkipWorkspaceSkillDiscovery(opts)) {
+    return { eligible: [], prompt: "", resolvedSkills: [] };
+  }
   const skillEntries = opts?.entries ?? loadSkillEntries(workspaceDir, opts);
   const effectiveSkillFilter = resolveEffectiveWorkspaceSkillFilter(opts);
   const eligible = filterSkillEntries(
@@ -844,6 +856,9 @@ export function loadWorkspaceSkillEntries(
     eligibility?: SkillEligibilityContext;
   },
 ): SkillEntry[] {
+  if (shouldSkipWorkspaceSkillDiscovery(opts)) {
+    return [];
+  }
   const entries = loadSkillEntries(workspaceDir, opts);
   const effectiveSkillFilter = resolveEffectiveWorkspaceSkillFilter(opts);
   if (effectiveSkillFilter === undefined) {
@@ -863,6 +878,9 @@ export function loadVisibleWorkspaceSkillEntries(
     eligibility?: SkillEligibilityContext;
   },
 ): SkillEntry[] {
+  if (shouldSkipWorkspaceSkillDiscovery(opts)) {
+    return [];
+  }
   const entries = loadSkillEntries(workspaceDir, opts);
   const effectiveSkillFilter = resolveEffectiveWorkspaceSkillFilter(opts);
   return filterSkillEntries(entries, opts?.config, effectiveSkillFilter, opts?.eligibility);
