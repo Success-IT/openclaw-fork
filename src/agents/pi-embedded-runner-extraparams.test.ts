@@ -2639,7 +2639,7 @@ describe("applyExtraParamsToAgent", () => {
     expect(payload.text).toEqual({ verbosity: "high" });
   });
 
-  it("injects configured OpenAI service_tier into Codex Responses payloads", () => {
+  it("does not inject configured OpenAI service_tier into Codex Responses payloads", () => {
     const payload = runResponsesPayloadMutationCase({
       applyProvider: "openai-codex",
       applyModelId: "gpt-5.4",
@@ -2663,7 +2663,7 @@ describe("applyExtraParamsToAgent", () => {
         baseUrl: "https://chatgpt.com/backend-api",
       } as unknown as Model<"openai-codex-responses">,
     });
-    expect(payload.service_tier).toBe("priority");
+    expect(payload).not.toHaveProperty("service_tier");
   });
 
   it("preserves caller-provided service_tier values", () => {
@@ -3223,7 +3223,7 @@ describe("applyExtraParamsToAgent", () => {
     expect(payload).not.toHaveProperty("service_tier");
   });
 
-  it("maps fast mode to priority service_tier for openai-codex responses", () => {
+  it("does not map fast mode to service_tier for openai-codex responses", () => {
     const payload = runResponsesPayloadMutationCase({
       applyProvider: "openai-codex",
       applyModelId: "gpt-5.4",
@@ -3240,7 +3240,7 @@ describe("applyExtraParamsToAgent", () => {
     });
     expect(payload).not.toHaveProperty("reasoning");
     expect(payload.text).toEqual({ verbosity: "low" });
-    expect(payload.service_tier).toBe("priority");
+    expect(payload).not.toHaveProperty("service_tier");
   });
 
   it("does not inject service_tier for non-openai providers", () => {

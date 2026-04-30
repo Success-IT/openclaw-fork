@@ -658,10 +658,7 @@ export function resolveProviderRequestCapabilities(
     ...policy,
     isKnownNativeEndpoint,
     allowsOpenAIServiceTier:
-      (provider === "openai" && api === "openai-responses" && endpointClass === "openai-public") ||
-      (provider === "openai-codex" &&
-        (api === "openai-codex-responses" || api === "openai-responses") &&
-        endpointClass === "openai-codex"),
+      provider === "openai" && api === "openai-responses" && endpointClass === "openai-public",
     supportsOpenAIReasoningCompatPayload:
       provider !== undefined &&
       api !== undefined &&

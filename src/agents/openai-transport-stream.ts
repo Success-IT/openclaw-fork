@@ -49,6 +49,7 @@ import { transformTransportMessages } from "./transport-message-transform.js";
 import { mergeTransportMetadata, sanitizeTransportPayloadText } from "./transport-stream-shared.js";
 
 const DEFAULT_AZURE_OPENAI_API_VERSION = "2024-12-01-preview";
+const OPENAI_CODEX_RESPONSES_EMPTY_INPUT_TEXT = " ";
 const log = createSubsystemLogger("openai-transport");
 
 type BaseStreamOptions = {
@@ -370,6 +371,45 @@ function convertResponsesTools(
     };
     return strict === undefined ? (base as FunctionTool) : { ...base, strict };
   });
+}
+
+function isOpenAICodexResponsesModel(model: Model<Api>): boolean {
+  return model.provider === "openai-codex" && model.api === "openai-codex-responses";
+}
+
+function buildOpenAICodexResponsesInstructions(context: Context): string | undefined {
+  if (!context.systemPrompt) {
+    return undefined;
+  }
+  return sanitizeTransportPayloadText(stripSystemPromptCacheBoundary(context.systemPrompt));
+}
+
+function ensureOpenAICodexResponsesInput(messages: ResponseInput, context: Context): void {
+  if (messages.length > 0 || !context.systemPrompt) {
+    return;
+  }
+  const instructions = buildOpenAICodexResponsesInstructions(context);
+  if (!instructions) {
+    throw new Error(
+      "OpenAI Codex Responses requires non-empty input when only systemPrompt is provided.",
+    );
+  }
+  messages.push({
+    role: "user",
+    content: [{ type: "input_text", text: OPENAI_CODEX_RESPONSES_EMPTY_INPUT_TEXT }],
+  });
+}
+
+async function resolveOpenAIResponsesApiKey(
+  model: Model<Api>,
+  optionsApiKey?: string,
+): Promise<string> {
+  const resolved = optionsApiKey?.trim() || getEnvApiKey(model.provider) || "";
+  if (resolved || !isOpenAICodexResponsesModel(model)) {
+    return resolved;
+  }
+  const { resolveApiKeyForProvider } = await import("./model-auth.js");
+  return (await resolveApiKeyForProvider({ provider: model.provider })).apiKey || "";
 }
 
 function resolveOpenAIStrictToolFlagWithDiagnostics(
@@ -704,7 +744,7 @@ export function createOpenAIResponsesTransportStreamFn(): StreamFn {
         timestamp: Date.now(),
       };
       try {
-        const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
+        const apiKey = await resolveOpenAIResponsesApiKey(model, options?.apiKey);
         const turnState = resolveProviderTransportTurnState(model, {
           sessionId: options?.sessionId,
           turnId: randomUUID(),
@@ -728,7 +768,9 @@ export function createOpenAIResponsesTransportStreamFn(): StreamFn {
         if (nextParams !== undefined) {
           params = nextParams as typeof params;
         }
-        params = mergeTransportMetadata(params, turnState?.metadata);
+        if (!isOpenAICodexResponsesModel(model)) {
+          params = mergeTransportMetadata(params, turnState?.metadata);
+        }
         const responseStream = (await client.responses.create(
           params as never,
           options?.signal ? { signal: options.signal } : undefined,
@@ -837,12 +879,16 @@ export function buildOpenAIResponsesParams(
   const compat = getCompat(model as OpenAIModeModel);
   const supportsDeveloperRole =
     typeof compat.supportsDeveloperRole === "boolean" ? compat.supportsDeveloperRole : undefined;
+  const isCodexResponses = isOpenAICodexResponsesModel(model);
   const messages = convertResponsesMessages(
     model,
     context,
     new Set(["openai", "openai-codex", "opencode", "azure-openai-responses"]),
-    { supportsDeveloperRole },
+    { includeSystemPrompt: !isCodexResponses, supportsDeveloperRole },
   );
+  if (isCodexResponses) {
+    ensureOpenAICodexResponsesInput(messages, context);
+  }
   const cacheRetention = resolveCacheRetention(options?.cacheRetention);
   const payloadPolicy = resolveOpenAIResponsesPayloadPolicy(model, {
     storeMode: "disable",
@@ -853,12 +899,13 @@ export function buildOpenAIResponsesParams(
     stream: true,
     prompt_cache_key: cacheRetention === "none" ? undefined : options?.sessionId,
     prompt_cache_retention: getPromptCacheRetention(model.baseUrl, cacheRetention),
-    ...(metadata ? { metadata } : {}),
+    ...(isCodexResponses ? { instructions: buildOpenAICodexResponsesInstructions(context) } : {}),
+    ...(metadata && !isCodexResponses ? { metadata } : {}),
   };
   if (options?.maxTokens) {
     params.max_output_tokens = options.maxTokens;
   }
-  if (options?.temperature !== undefined) {
+  if (options?.temperature !== undefined && !isCodexResponses) {
     params.temperature = options.temperature;
   }
   if (options?.serviceTier !== undefined && payloadPolicy.allowsServiceTier) {
