@@ -47,7 +47,12 @@ import type { buildCommandContext } from "./commands.js";
 import type { InlineDirectives } from "./directive-handling.js";
 import { shouldUseReplyFastTestRuntime } from "./get-reply-fast-path.js";
 import { resolvePreparedReplyQueueState } from "./get-reply-run-queue.js";
-import { buildDirectChatContext, buildGroupChatContext, buildGroupIntro } from "./groups.js";
+import {
+  buildDirectChatContext,
+  buildGroupChatContext,
+  buildGroupIntro,
+  resolveGroupSilentReplyBehavior,
+} from "./groups.js";
 import { hasInboundMedia } from "./inbound-media.js";
 import { buildInboundMetaSystemPrompt, buildInboundUserContextPrefix } from "./inbound-meta.js";
 import type { createModelSelectionState } from "./model-selection.js";
@@ -266,14 +271,15 @@ export async function runPreparedReply(
     ctx,
     sessionKey,
   });
+  const silentReplyConversationType = resolvePromptSilentReplyConversationType({
+    ctx: sessionCtx,
+    inboundSessionKey: ctx.SessionKey,
+  });
   const silentReplySettings = resolveSilentReplySettings({
     cfg,
     sessionKey: runtimePolicySessionKey,
     surface: sessionCtx.Surface ?? sessionCtx.Provider,
-    conversationType: resolvePromptSilentReplyConversationType({
-      ctx: sessionCtx,
-      inboundSessionKey: ctx.SessionKey,
-    }),
+    conversationType: silentReplyConversationType,
   });
   let {
     sessionEntry,
@@ -298,7 +304,9 @@ export async function runPreparedReply(
   let currentSystemSent = systemSent;
 
   const isFirstTurnInSession = isNewSession || !currentSystemSent;
-  const isGroupChat = sessionCtx.ChatType === "group";
+  const normalizedSessionChatType = normalizeChatType(sessionCtx.ChatType);
+  const isDirectChat = normalizedSessionChatType === "direct";
+  const isGroupChat = normalizedSessionChatType === "group";
   const wasMentioned = ctx.WasMentioned === true;
   const isHeartbeat = opts?.isHeartbeat === true;
   const { typingPolicy, suppressTyping } = resolveRunTypingPolicy({
@@ -318,15 +326,14 @@ export async function runPreparedReply(
   const shouldInjectGroupIntro = Boolean(
     isGroupChat && (isFirstTurnInSession || sessionEntry?.groupActivationNeedsSystemIntro),
   );
-  const directChatContext =
-    sessionCtx.ChatType === "direct" || sessionCtx.ChatType === "dm"
-      ? buildDirectChatContext({
-          sessionCtx,
-          silentReplyPolicy: silentReplySettings.policy,
-          silentReplyRewrite: silentReplySettings.rewrite,
-          silentToken: SILENT_REPLY_TOKEN,
-        })
-      : "";
+  const directChatContext = isDirectChat
+    ? buildDirectChatContext({
+        sessionCtx,
+        silentReplyPolicy: silentReplySettings.policy,
+        silentReplyRewrite: silentReplySettings.rewrite,
+        silentToken: SILENT_REPLY_TOKEN,
+      })
+    : "";
   // Always include persistent group chat context (provider + reply guidance).
   const groupChatContext = isGroupChat ? buildGroupChatContext({ sessionCtx }) : "";
   // Behavioral intro (activation mode, lurking, etc.) only on first turn / activation needed
@@ -352,9 +359,9 @@ export async function runPreparedReply(
         silentReplyPolicy: silentReplySettings.policy,
         silentReplyRewrite: silentReplySettings.rewrite,
       }).allowEmptyAssistantReplyAsSilent);
-  const groupSystemPrompt = normalizeOptionalString(promptSessionCtx.GroupSystemPrompt) ?? "";
+  const groupSystemPrompt = normalizeOptionalString(sessionCtx.GroupSystemPrompt) ?? "";
   const tierSystemPrompt = isGroupChat
-    ? (resolveGroupTierSystemPrompt(promptSessionCtx.GroupTier as GroupTier | undefined) ?? "")
+    ? (resolveGroupTierSystemPrompt(sessionCtx.GroupTier as GroupTier | undefined) ?? "")
     : "";
   const inboundMetaPrompt = buildInboundMetaSystemPrompt(
     isNewSession ? sessionCtx : { ...sessionCtx, ThreadStarterBody: undefined },
@@ -825,6 +832,7 @@ export async function runPreparedReply(
       extraSystemPrompt: extraSystemPromptParts.join("\n\n") || undefined,
       extraSystemPromptStatic: extraSystemPromptStaticParts.join("\n\n"),
       skipProviderRuntimeHints: useFastReplyRuntime,
+      allowEmptyAssistantReplyAsSilent,
       ...(!useFastReplyRuntime &&
       isReasoningTagProvider(provider, {
         config: cfg,

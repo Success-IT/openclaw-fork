@@ -77,6 +77,11 @@ vi.mock("./groups.js", () => ({
   buildDirectChatContext: vi.fn().mockReturnValue(""),
   buildGroupIntro: vi.fn().mockReturnValue(""),
   buildGroupChatContext: vi.fn().mockReturnValue(""),
+  resolveGroupSilentReplyBehavior: vi.fn().mockReturnValue({
+    activation: "always",
+    canUseSilentReply: true,
+    allowEmptyAssistantReplyAsSilent: true,
+  }),
 }));
 
 vi.mock("./inbound-meta.js", () => ({
