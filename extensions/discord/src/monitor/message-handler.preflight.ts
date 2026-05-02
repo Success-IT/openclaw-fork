@@ -1,5 +1,6 @@
 import { ChannelType, MessageType, type Message, type User } from "@buape/carbon";
 import { Routes, type APIMessage } from "discord-api-types/v10";
+import { DEFAULT_ACCOUNT_ID, normalizeAccountId } from "openclaw/plugin-sdk/account-id";
 import { formatAllowlistMatchMeta } from "openclaw/plugin-sdk/allow-from";
 import {
   buildMentionRegexes,
@@ -786,7 +787,7 @@ export async function preflightDiscordMessage(
   const channelMatchMeta = formatAllowlistMatchMeta(channelConfig);
   if (shouldLogVerbose()) {
     const channelConfigSummary = channelConfig
-      ? `allowed=${channelConfig.allowed} enabled=${channelConfig.enabled ?? "unset"} requireMention=${channelConfig.requireMention ?? "unset"} ignoreOtherMentions=${channelConfig.ignoreOtherMentions ?? "unset"} matchKey=${channelConfig.matchKey ?? "none"} matchSource=${channelConfig.matchSource ?? "none"} users=${channelConfig.users?.length ?? 0} roles=${channelConfig.roles?.length ?? 0} skills=${channelConfig.skills?.length ?? 0}`
+      ? `allowed=${channelConfig.allowed} enabled=${channelConfig.enabled ?? "unset"} requireMention=${channelConfig.requireMention ?? "unset"} ignoreOtherMentions=${channelConfig.ignoreOtherMentions ?? "unset"} matchKey=${channelConfig.matchKey ?? "none"} matchSource=${channelConfig.matchSource ?? "none"} accounts=${channelConfig.accounts?.length ?? 0} users=${channelConfig.users?.length ?? 0} roles=${channelConfig.roles?.length ?? 0} skills=${channelConfig.skills?.length ?? 0}`
       : "none";
     logDebug(
       `[discord-preflight] channelConfig=${channelConfigSummary} channelMatchMeta=${channelMatchMeta} channelId=${messageChannelId}`,
@@ -798,6 +799,23 @@ export async function preflightDiscordMessage(
       `Blocked discord channel ${messageChannelId} (channel disabled, ${channelMatchMeta})`,
     );
     return null;
+  }
+
+  const allowedAccounts = channelConfig?.accounts;
+  if (isGuildMessage && Array.isArray(allowedAccounts) && allowedAccounts.length > 0) {
+    const normalizedAccountId = normalizeAccountId(params.accountId || DEFAULT_ACCOUNT_ID);
+    const accountAllowed = allowedAccounts.some(
+      (accountId) => normalizeAccountId(accountId) === normalizedAccountId,
+    );
+    if (!accountAllowed) {
+      logDebug(
+        `[discord-preflight] drop: account ${normalizedAccountId} not allowed for channel ${messageChannelId}`,
+      );
+      logVerbose(
+        `Blocked discord channel ${messageChannelId} for account ${normalizedAccountId} (allowed accounts: ${allowedAccounts.join(", ")})`,
+      );
+      return null;
+    }
   }
 
   const groupDmAllowed =

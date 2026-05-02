@@ -166,6 +166,7 @@ async function runGuildPreflight(params: {
   cfg?: import("openclaw/plugin-sdk/config-runtime").OpenClawConfig;
   guildEntries?: Parameters<typeof preflightDiscordMessage>[0]["guildEntries"];
   includeGuildObject?: boolean;
+  accountId?: string;
 }) {
   return preflightDiscordMessage({
     ...createPreflightArgs({
@@ -180,6 +181,7 @@ async function runGuildPreflight(params: {
       }),
       client: createGuildTextClient(params.channelId),
     }),
+    ...(params.accountId ? { accountId: params.accountId } : {}),
     guildEntries: params.guildEntries,
   });
 }
@@ -753,6 +755,40 @@ describe("preflightDiscordMessage", () => {
     expect(result?.guildInfo?.id).toBe("guild-1");
     expect(result?.channelConfig?.allowed).toBe(true);
     expect(result?.shouldRequireMention).toBe(false);
+  });
+
+  it("drops guild messages when the channel is bound to a different account", async () => {
+    const message = createDiscordMessage({
+      id: "m-guild-account-bound",
+      channelId: "support",
+      content: "hello from support",
+      author: {
+        id: "user-1",
+        bot: false,
+        username: "Peter",
+      },
+    });
+
+    const result = await runGuildPreflight({
+      channelId: "support",
+      guildId: "guild-1",
+      message,
+      discordConfig: {} as DiscordConfig,
+      accountId: "zach",
+      guildEntries: {
+        "guild-1": {
+          channels: {
+            support: {
+              enabled: true,
+              requireMention: false,
+              accounts: ["laylah"],
+            },
+          },
+        },
+      },
+    });
+
+    expect(result).toBeNull();
   });
 
   it("inherits parent thread allowlist when guild object is missing", async () => {

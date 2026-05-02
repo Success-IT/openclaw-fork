@@ -381,10 +381,16 @@ export async function processMessage(params: {
     channel: "whatsapp",
     accountId: params.route.accountId,
   });
+  const normalizedFrom = normalizeE164(params.msg.from);
+  const normalizedSelf = normalizeE164(self.e164 ?? params.msg.to);
+  const isDirectSelfChat =
+    params.msg.chatType !== "group" &&
+    (inboundPolicy.isSelfChat ||
+      Boolean(normalizedFrom && normalizedSelf && normalizedFrom === normalizedSelf));
   const responsePrefix = resolveWhatsAppResponsePrefix({
     cfg: params.cfg,
     agentId: params.route.agentId,
-    isSelfChat: params.msg.chatType !== "group" && inboundPolicy.isSelfChat,
+    isSelfChat: isDirectSelfChat,
     pipelineResponsePrefix: replyPipeline.responsePrefix,
   });
   const replyThreading = resolveBatchedReplyThreadingPolicy(

@@ -28,6 +28,7 @@ type DiscordChannelOverrideConfig = {
   ignoreOtherMentions?: boolean;
   skills?: string[];
   enabled?: boolean;
+  accounts?: string[];
   users?: string[];
   roles?: string[];
   systemPrompt?: string;
@@ -401,6 +402,7 @@ function resolveDiscordChannelConfigEntry(
     ignoreOtherMentions: entry.ignoreOtherMentions,
     skills: entry.skills,
     enabled: entry.enabled,
+    accounts: entry.accounts,
     users: entry.users,
     roles: entry.roles,
     systemPrompt: entry.systemPrompt,

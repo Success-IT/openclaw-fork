@@ -281,6 +281,7 @@ describe("WhatsApp group active hours", () => {
     });
 
     const result = await checkInboundAccessControl({
+      cfg: getAccessControlTestConfig() as never,
       accountId: "work",
       from: "123@g.us",
       selfE164: "+15550009999",
