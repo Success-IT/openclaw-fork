@@ -571,6 +571,11 @@ const isGatewayCommand = (args) => args[0] === "gateway";
 const isGatewayStartCommand = (args) =>
   isGatewayCommand(args) && (args[1] === "run" || args[1] === "start");
 const isGatewayStopCommand = (args) => isGatewayCommand(args) && args[1] === "stop";
+const shouldUseExistingDistForGatewayClient = (deps, buildRequirement) =>
+  isGatewayCommand(deps.args) &&
+  !isGatewayStartCommand(deps.args) &&
+  !isGatewayStopCommand(deps.args) &&
+  buildRequirement.reason === "gateway_running";
 
 const resolveGatewayPortForGuard = (deps) => {
   const candidates = [deps.env.OPENCLAW_GATEWAY_PORT, deps.env.CLAWDBOT_GATEWAY_PORT];
@@ -639,7 +644,7 @@ const resolveBuildRequirementConsideringGateway = async (deps) => {
     `Skipping auto-build because a gateway appears to be listening on 127.0.0.1:${port} (dist is stale: ${buildRequirement.reason} - ${formatBuildReason(buildRequirement.reason)}).`,
     deps,
   );
-  return { ...buildRequirement, shouldBuild: false };
+  return { ...buildRequirement, shouldBuild: false, reason: "gateway_running" };
 };
 
 const runOpenClaw = async (deps) => {

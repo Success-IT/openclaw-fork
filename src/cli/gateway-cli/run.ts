@@ -393,6 +393,9 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
 
   const startupTrace = createGatewayCliStartupTrace();
 
+  const { installPiClipboardGuard } = await import("../../infra/pi-clipboard-guard.js");
+  installPiClipboardGuard();
+
   // The heaviest part of gateway startup is loading the server module tree
   // (channels, plugins, HTTP stack, etc.). Show a spinner so the user sees
   // progress instead of a silent 15-20 s pause (especially on Windows/NTFS).
