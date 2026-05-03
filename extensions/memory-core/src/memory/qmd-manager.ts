@@ -1596,16 +1596,18 @@ export class QmdMemoryManager implements MemorySearchManager {
     // Keep embeddings current regardless of the active retrieval mode.
     // Search-mode indexing still needs vectors so later mode switches and
     // hybrid flows do not inherit an incomplete QMD index.
+    if (force) {
+      return true;
+    }
     const now = Date.now();
     if (this.embedBackoffUntil !== null && now < this.embedBackoffUntil) {
       return false;
     }
     const embedIntervalMs = this.qmd.update.embedIntervalMs;
-    return (
-      Boolean(force) ||
-      this.lastEmbedAt === null ||
-      (embedIntervalMs > 0 && now - this.lastEmbedAt > embedIntervalMs)
-    );
+    if (embedIntervalMs <= 0) {
+      return false;
+    }
+    return this.lastEmbedAt === null || now - this.lastEmbedAt > embedIntervalMs;
   }
 
   private shouldScheduleEmbedTimer(): boolean {

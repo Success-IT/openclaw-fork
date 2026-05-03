@@ -787,6 +787,7 @@ function buildRecallPrompt(params: {
     "Your job is to search memory and return only the most relevant memory context for that model.",
     "You receive conversation context, including the user's latest message.",
     "Use only memory_search and memory_get.",
+    "If memory_search reports that memory is unavailable, rate limited, quota exhausted, or not configured, reply with NONE immediately.",
     "When searching for preference or habit recall, use a permissive memory_search threshold before deciding that no useful memory exists.",
     "Do not answer the user directly.",
     `Prompt style: ${params.config.promptStyle}.`,
@@ -1004,6 +1005,25 @@ function toSingleLineLogValue(value: unknown): string {
 
 function shouldCacheResult(result: ActiveRecallResult): boolean {
   return result.status === "ok" || result.status === "empty";
+}
+
+function isMemorySearchUnavailableDebug(searchDebug: ActiveMemorySearchDebug | undefined): boolean {
+  if (!searchDebug) {
+    return false;
+  }
+  const haystack = [searchDebug.warning, searchDebug.action, searchDebug.error]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  return (
+    haystack.includes("unavailable") ||
+    haystack.includes("quota") ||
+    haystack.includes("rate limit") ||
+    haystack.includes("rate-limit") ||
+    haystack.includes("429") ||
+    haystack.includes("resource_exhausted") ||
+    haystack.includes("not configured")
+  );
 }
 
 function resolveStatusUpdateAgentId(ctx: { agentId?: string; sessionKey?: string }): string {
@@ -1318,13 +1338,33 @@ function normalizeNoRecallValue(value: string): boolean {
   return NO_RECALL_VALUES.has(value.trim().toLowerCase());
 }
 
-function normalizeActiveSummary(rawReply: string): string | null {
+function normalizeForEchoComparison(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function isLikelyConversationEcho(summary: string, query: string): boolean {
+  const normalizedSummary = normalizeForEchoComparison(summary);
+  if (!normalizedSummary) {
+    return false;
+  }
+  const normalizedQuery = normalizeForEchoComparison(query);
+  return normalizedQuery.includes(normalizedSummary);
+}
+
+function normalizeActiveSummary(rawReply: string, query: string): string | null {
   const trimmed = rawReply.trim();
   if (normalizeNoRecallValue(trimmed)) {
     return null;
   }
   const singleLine = trimmed.replace(/\s+/g, " ").trim();
   if (!singleLine || normalizeNoRecallValue(singleLine)) {
+    return null;
+  }
+  if (isLikelyConversationEcho(singleLine, query)) {
     return null;
   }
   return singleLine;
@@ -1790,7 +1830,7 @@ async function maybeResolveActiveRecall(params: {
       abortSignal: controller.signal,
     });
     const summary = truncateSummary(
-      normalizeActiveSummary(rawReply) ?? "",
+      normalizeActiveSummary(rawReply, params.query) ?? "",
       params.config.maxSummaryChars,
     );
     if (params.config.logging && transcriptPath) {
@@ -1806,7 +1846,7 @@ async function maybeResolveActiveRecall(params: {
             searchDebug,
           }
         : {
-            status: "empty",
+            status: isMemorySearchUnavailableDebug(searchDebug) ? "unavailable" : "empty",
             elapsedMs: Date.now() - startedAt,
             summary: null,
             searchDebug,

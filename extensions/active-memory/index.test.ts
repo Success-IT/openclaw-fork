@@ -570,6 +570,28 @@ describe("active-memory plugin", () => {
     });
   });
 
+  it("does not inject active-memory text copied from the current prompt", async () => {
+    runEmbeddedPiAgent.mockResolvedValueOnce({
+      payloads: [{ text: "ACTIVE_MEMORY_FAST_OK" }],
+    });
+
+    const result = await hooks.before_prompt_build(
+      {
+        prompt: "SMOKE_ACTIVE_MEMORY_FAST: reply exactly ACTIVE_MEMORY_FAST_OK",
+        messages: [],
+      },
+      {
+        agentId: "main",
+        trigger: "user",
+        sessionKey: "agent:main:main",
+        messageProvider: "webchat",
+      },
+    );
+
+    expect(runEmbeddedPiAgent).toHaveBeenCalledTimes(1);
+    expect(result).toBeUndefined();
+  });
+
   it("lets active memory inherit the main QMD search mode when configured", async () => {
     api.config = {
       agents: {
@@ -1444,7 +1466,7 @@ describe("active-memory plugin", () => {
       {
         pluginId: "active-memory",
         lines: [
-          expect.stringContaining("🧩 Active Memory: status=empty"),
+          expect.stringContaining("🧩 Active Memory: status=unavailable"),
           expect.stringContaining(
             "🔎 Active Memory Debug: Memory search is unavailable because the embedding provider quota is exhausted. Top up or switch embedding provider, then retry memory_search.",
           ),

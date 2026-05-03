@@ -87,6 +87,10 @@ function loadQmdManagerModule() {
   return qmdManagerModulePromise;
 }
 
+function isActiveMemorySessionKey(sessionKey?: string): boolean {
+  return typeof sessionKey === "string" && sessionKey.includes(":active-memory:");
+}
+
 export type MemorySearchManagerResult = {
   manager: Maybe<MemorySearchManager>;
   error?: string;
@@ -346,6 +350,14 @@ class FallbackMemoryManager implements MemorySearchManager {
       } catch (err) {
         this.primaryFailed = true;
         this.lastError = formatErrorMessage(err);
+        if (isActiveMemorySessionKey(opts?.sessionKey)) {
+          log.warn(
+            `qmd memory failed for active-memory; builtin fallback disabled: ${this.lastError}`,
+          );
+          await this.deps.primary.close?.().catch(() => {});
+          this.evictCacheEntry();
+          throw err;
+        }
         log.warn(`qmd memory failed; switching to builtin index: ${this.lastError}`);
         await this.deps.primary.close?.().catch(() => {});
         // Evict the failed wrapper so the next request can retry QMD with a fresh manager.
