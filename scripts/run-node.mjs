@@ -576,6 +576,7 @@ const shouldUseExistingDistForGatewayClient = (deps, buildRequirement) =>
   !isGatewayStartCommand(deps.args) &&
   !isGatewayStopCommand(deps.args) &&
   buildRequirement.reason === "gateway_running";
+const shouldRunQaParityReportFromSource = () => false;
 
 const resolveGatewayPortForGuard = (deps) => {
   const candidates = [deps.env.OPENCLAW_GATEWAY_PORT, deps.env.CLAWDBOT_GATEWAY_PORT];
