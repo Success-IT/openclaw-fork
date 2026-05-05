@@ -29,6 +29,7 @@ function createTelegramPollExtraToolSchemas() {
 }
 
 const mocks = vi.hoisted(() => ({
+  callGateway: vi.fn(),
   runMessageAction: vi.fn(),
   loadConfig: vi.fn(() => ({})),
   resolveCommandSecretRefsViaGateway: vi.fn(async ({ config }: { config: unknown }) => ({
@@ -101,6 +102,15 @@ const mocks = vi.hoisted(() => ({
   ),
 }));
 
+vi.mock("../../gateway/call.js", async () => {
+  const actual =
+    await vi.importActual<typeof import("../../gateway/call.js")>("../../gateway/call.js");
+  return {
+    ...actual,
+    callGateway: mocks.callGateway,
+  };
+});
+
 vi.mock("../../infra/outbound/message-action-runner.js", async () => {
   const actual = await vi.importActual<
     typeof import("../../infra/outbound/message-action-runner.js")
@@ -158,6 +168,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   resetPluginRuntimeStateForTest();
+  mocks.callGateway.mockReset();
   mocks.runMessageAction.mockReset();
   mocks.loadConfig.mockReset().mockReturnValue({});
   mocks.resolveCommandSecretRefsViaGateway.mockReset().mockImplementation(async ({ config }) => ({
@@ -301,6 +312,66 @@ describe("message tool agent routing", () => {
     const call = mocks.runMessageAction.mock.calls[0]?.[0];
     expect(call?.agentId).toBe("alpha");
     expect(call?.sessionKey).toBe("agent:alpha:main");
+  });
+
+  it("routes configured agent targets through sessions_send instead of channel delivery", async () => {
+    let waitedRunId: string | undefined;
+    mocks.callGateway.mockImplementation(async (opts: unknown) => {
+      const request = opts as { method?: string; params?: Record<string, unknown> };
+      if (request.method === "chat.history") {
+        return {
+          messages: waitedRunId
+            ? [
+                {
+                  role: "assistant",
+                  content: [{ type: "text", text: "queued for Zach" }],
+                  timestamp: 20,
+                },
+              ]
+            : [],
+        };
+      }
+      if (request.method === "agent") {
+        expect(request.params).toMatchObject({
+          sessionKey: "agent:zach:main",
+          message: "please handle this",
+          channel: "webchat",
+          inputProvenance: { kind: "inter_session", sourceTool: "sessions_send" },
+        });
+        return { runId: "run-zach", status: "accepted" };
+      }
+      if (request.method === "agent.wait") {
+        waitedRunId = String(request.params?.runId ?? "");
+        return { runId: waitedRunId, status: "ok" };
+      }
+      return {};
+    });
+
+    const tool = createMessageTool({
+      agentSessionKey: "agent:main:whatsapp:laylah:direct:+6591837772",
+      currentChannelProvider: "whatsapp",
+      config: {
+        agents: { list: [{ id: "main" }, { id: "zach" }] },
+        tools: {
+          sessions: { visibility: "all" },
+          agentToAgent: { enabled: true, allow: ["main", "zach"] },
+        },
+      } as never,
+      runMessageAction: mocks.runMessageAction as never,
+    });
+
+    const result = await tool.execute("1", {
+      action: "send",
+      target: "zach:main",
+      message: "please handle this",
+    });
+
+    expect(result.details).toMatchObject({
+      status: "ok",
+      reply: "queued for Zach",
+      sessionKey: "agent:zach:main",
+    });
+    expect(mocks.runMessageAction).not.toHaveBeenCalled();
   });
 });
 

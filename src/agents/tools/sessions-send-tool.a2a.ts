@@ -61,11 +61,18 @@ export async function runSessionsSendA2AFlow(params: {
       return;
     }
 
-    const announceTarget = await resolveAnnounceTarget({
+    const targetAnnounceTarget = await resolveAnnounceTarget({
       sessionKey: params.targetSessionKey,
       displayKey: params.displayKey,
     });
-    const targetChannel = announceTarget?.channel ?? "unknown";
+    const requesterAnnounceTarget = params.requesterSessionKey
+      ? await resolveAnnounceTarget({
+          sessionKey: params.requesterSessionKey,
+          displayKey: params.requesterSessionKey,
+        })
+      : null;
+    const announceTarget = targetAnnounceTarget ?? requesterAnnounceTarget;
+    const targetChannel = targetAnnounceTarget?.channel ?? "unknown";
 
     if (
       params.maxPingPongTurns > 0 &&

@@ -66,4 +66,24 @@ describe("runSessionsSendA2AFlow announce delivery", () => {
     expect(sendParams.channel).toBe("discord");
     expect(sendParams.threadId).toBeUndefined();
   });
+
+  it("falls back to the requester session when a sibling main session has no target channel", async () => {
+    await runSessionsSendA2AFlow({
+      targetSessionKey: "agent:zach:main",
+      displayKey: "agent:zach:main",
+      requesterSessionKey: "agent:main:telegram:group:-100123:topic:554",
+      requesterChannel: "telegram",
+      message: "Test message",
+      announceTimeoutMs: 10_000,
+      maxPingPongTurns: 0,
+      roundOneReply: "Worker completed successfully",
+    });
+
+    const sendCall = gatewayCalls.find((call) => call.method === "send");
+    expect(sendCall).toBeDefined();
+    const sendParams = sendCall?.params as Record<string, unknown>;
+    expect(sendParams.to).toBe("-100123");
+    expect(sendParams.channel).toBe("telegram");
+    expect(sendParams.threadId).toBe("554");
+  });
 });

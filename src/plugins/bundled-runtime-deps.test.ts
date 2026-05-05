@@ -352,6 +352,60 @@ describe("installBundledRuntimeDeps", () => {
     });
   });
 
+  it("does not fail an isolated runtime deps install when stage cleanup races", () => {
+    const installRoot = makeTempDir();
+    const installExecutionRoot = path.join(installRoot, ".openclaw-install-stage");
+    const realRmSync = fs.rmSync.bind(fs);
+    let blockedStageCleanup = false;
+    vi.spyOn(fs, "rmSync").mockImplementation((target, options) => {
+      if (!blockedStageCleanup && path.resolve(String(target)) === installExecutionRoot) {
+        blockedStageCleanup = true;
+        const error = new Error("Directory not empty") as NodeJS.ErrnoException;
+        error.code = "ENOTEMPTY";
+        throw error;
+      }
+      return realRmSync(target, options);
+    });
+    spawnSyncMock.mockImplementation((_command, _args, options) => {
+      const cwd = String(options?.cwd ?? "");
+      fs.mkdirSync(path.join(cwd, "node_modules", "tokenjuice"), { recursive: true });
+      fs.writeFileSync(
+        path.join(cwd, "node_modules", "tokenjuice", "package.json"),
+        JSON.stringify({ name: "tokenjuice", version: "0.6.1" }),
+      );
+      return {
+        pid: 123,
+        output: [],
+        stdout: "",
+        stderr: "",
+        signal: null,
+        status: 0,
+      };
+    });
+
+    expect(() =>
+      installBundledRuntimeDeps({
+        installRoot,
+        installExecutionRoot,
+        missingSpecs: ["tokenjuice@0.6.1"],
+        env: {},
+      }),
+    ).not.toThrow();
+
+    expect(blockedStageCleanup).toBe(true);
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(installRoot, "node_modules", "tokenjuice", "package.json"),
+          "utf8",
+        ),
+      ),
+    ).toEqual({
+      name: "tokenjuice",
+      version: "0.6.1",
+    });
+  });
+
   it("does not fail an isolated runtime deps install when temp cleanup races", () => {
     const installRoot = makeTempDir();
     const installExecutionRoot = makeTempDir();

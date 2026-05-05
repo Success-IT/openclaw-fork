@@ -547,15 +547,25 @@ function replaceNodeModulesDir(targetDir: string, sourceDir: string): void {
   const stagedDir = path.join(tempDir, "node_modules");
   try {
     fs.cpSync(sourceDir, stagedDir, { recursive: true });
-    fs.rmSync(targetDir, { recursive: true, force: true });
+    fs.rmSync(targetDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     fs.renameSync(stagedDir, targetDir);
   } finally {
     try {
-      fs.rmSync(tempDir, { recursive: true, force: true });
+      fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     } catch {
       // Stale temp dirs are swept at the next runtime-deps pass. Do not fail
       // a node_modules replacement on a transient cleanup race.
     }
+  }
+}
+
+function removeRuntimeDepsInstallExecutionRootBestEffort(dir: string): void {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  } catch {
+    // The install already completed and node_modules was copied into place.
+    // npm or filesystem watchers can briefly keep files under the staging
+    // directory open on macOS, so leave stale stage cleanup to a later pass.
   }
 }
 
@@ -1064,7 +1074,7 @@ export function installBundledRuntimeDeps(params: {
     }
   } finally {
     if (cleanInstallExecutionRoot) {
-      fs.rmSync(installExecutionRoot, { recursive: true, force: true });
+      removeRuntimeDepsInstallExecutionRootBestEffort(installExecutionRoot);
     }
   }
 }

@@ -18,16 +18,21 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { GATEWAY_CLIENT_IDS, GATEWAY_CLIENT_MODES } from "../../gateway/protocol/client-info.js";
 import { getToolResult, runMessageAction } from "../../infra/outbound/message-action-runner.js";
 import { POLL_CREATION_PARAM_DEFS, SHARED_POLL_CREATION_PARAM_NAMES } from "../../poll-params.js";
-import { normalizeAccountId } from "../../routing/session-key.js";
+import {
+  buildAgentMainSessionKey,
+  normalizeAccountId,
+  normalizeAgentId,
+} from "../../routing/session-key.js";
 import { normalizeOptionalString } from "../../shared/string-coerce.js";
 import { stripReasoningTagsFromText } from "../../shared/text/reasoning-tags.js";
 import { normalizeMessageChannel } from "../../utils/message-channel.js";
-import { resolveSessionAgentId } from "../agent-scope.js";
+import { listAgentIds, resolveSessionAgentId } from "../agent-scope.js";
 import { listAllChannelSupportedActions, listChannelSupportedActions } from "../channel-tools.js";
 import { channelTargetSchema, channelTargetsSchema, stringEnum } from "../schema/typebox.js";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readNumberParam, readStringParam } from "./common.js";
 import { resolveGatewayOptions } from "./gateway.js";
+import { createSessionsSendTool } from "./sessions-send-tool.js";
 
 const AllMessageActions = CHANNEL_MESSAGE_ACTION_NAMES;
 const MESSAGE_TOOL_THREAD_READ_HINT =
@@ -44,6 +49,39 @@ const EXPLICIT_TARGET_ACTIONS = new Set<ChannelMessageActionName>([
 
 function actionNeedsExplicitTarget(action: ChannelMessageActionName): boolean {
   return EXPLICIT_TARGET_ACTIONS.has(action);
+}
+
+function resolveAgentSessionTarget(params: {
+  cfg: OpenClawConfig;
+  target?: unknown;
+  to?: unknown;
+}): string | null {
+  const rawTarget =
+    normalizeOptionalString(typeof params.target === "string" ? params.target : undefined) ??
+    normalizeOptionalString(typeof params.to === "string" ? params.to : undefined);
+  if (!rawTarget) {
+    return null;
+  }
+
+  const knownAgentIds = new Set(listAgentIds(params.cfg));
+  const agentKeyMatch = /^agent:([^:]+)(?::(.+))?$/iu.exec(rawTarget);
+  if (agentKeyMatch) {
+    const agentId = normalizeAgentId(agentKeyMatch[1] ?? "");
+    if (!knownAgentIds.has(agentId)) {
+      return null;
+    }
+    const rest = normalizeOptionalString(agentKeyMatch[2] ?? "") ?? "main";
+    return `agent:${agentId}:${rest}`;
+  }
+
+  const agentMainMatch = /^([^:]+):main$/iu.exec(rawTarget);
+  if (agentMainMatch) {
+    const agentId = normalizeAgentId(agentMainMatch[1] ?? "");
+    return knownAgentIds.has(agentId) ? buildAgentMainSessionKey({ agentId }) : null;
+  }
+
+  const agentId = normalizeAgentId(rawTarget);
+  return knownAgentIds.has(agentId) ? buildAgentMainSessionKey({ agentId }) : null;
 }
 function buildRoutingSchema() {
   return {
@@ -759,6 +797,25 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
             mode: "enforce_resolved",
           })
         ).resolvedConfig;
+      }
+
+      if (action === "send") {
+        const agentSessionTarget = resolveAgentSessionTarget({
+          cfg,
+          target: params.target,
+          to: params.to,
+        });
+        if (agentSessionTarget) {
+          const sessionsSendTool = createSessionsSendTool({
+            agentSessionKey: options?.agentSessionKey,
+            agentChannel: normalizeMessageChannel(options?.currentChannelProvider),
+            config: cfg,
+          });
+          return await sessionsSendTool.execute(_toolCallId, {
+            sessionKey: agentSessionTarget,
+            message: readStringParam(params, "message", { required: true }),
+          });
+        }
       }
 
       const accountId = readStringParam(params, "accountId") ?? agentAccountId;
