@@ -34,6 +34,10 @@ import { buildMentionConfig } from "./mentions.js";
 import { createWebChannelStatusController } from "./monitor-state.js";
 import { createEchoTracker } from "./monitor/echo.js";
 import { createWebOnMessageHandler } from "./monitor/on-message.js";
+import {
+  DEFAULT_WHATSAPP_RECENT_CONTEXT_LIMIT,
+  DEFAULT_WHATSAPP_RECENT_CONTEXT_MAX_AGE_HOURS,
+} from "./monitor/recent-context.js";
 import type { WebInboundMsg, WebMonitorTuning } from "./types.js";
 import { isLikelyWhatsAppCryptoError } from "./util.js";
 
@@ -149,6 +153,18 @@ export async function monitorWebChannel(
     cfg.channels?.whatsapp?.historyLimit ??
     cfg.messages?.groupChat?.historyLimit ??
     DEFAULT_GROUP_HISTORY_LIMIT;
+  const recentGroupContextConfig = {
+    limit:
+      account.recentContextLimit ??
+      cfg.channels?.whatsapp?.recentContextLimit ??
+      cfg.messages?.groupChat?.recentContextLimit ??
+      DEFAULT_WHATSAPP_RECENT_CONTEXT_LIMIT,
+    maxAgeHours:
+      account.recentContextMaxAgeHours ??
+      cfg.channels?.whatsapp?.recentContextMaxAgeHours ??
+      cfg.messages?.groupChat?.recentContextMaxAgeHours ??
+      DEFAULT_WHATSAPP_RECENT_CONTEXT_MAX_AGE_HOURS,
+  };
   const groupHistories = new Map<
     string,
     Array<{
@@ -159,6 +175,17 @@ export async function monitorWebChannel(
       senderJid?: string;
     }>
   >();
+  const recentGroupContexts = new Map<
+    string,
+    Array<{
+      sender: string;
+      body: string;
+      timestamp?: number;
+      id?: string;
+      senderJid?: string;
+    }>
+  >();
+  const groupFollowups = new Map<string, { senderKey: string; expiresAt: number }>();
   const groupMemberNames = new Map<string, Map<string, string>>();
   const echoTracker = createEchoTracker({ maxItems: 100, logVerbose });
 
@@ -237,6 +264,9 @@ export async function monitorWebChannel(
               maxMediaBytes,
               groupHistoryLimit,
               groupHistories,
+              recentGroupContexts,
+              recentGroupContextConfig,
+              groupFollowups,
               groupMemberNames,
               echoTracker,
               backgroundTasks: connection.backgroundTasks,

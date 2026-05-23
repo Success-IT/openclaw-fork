@@ -76,6 +76,10 @@ type WhatsAppSharedConfig = {
   contextVisibility?: ContextVisibilityMode;
   /** Max group messages to keep as history context (0 disables). */
   historyLimit?: number;
+  /** Rolling recent group messages retained across bot replies. Set 0 to disable. */
+  recentContextLimit?: number;
+  /** Maximum age for rolling recent group context. Set 0 to disable age pruning. */
+  recentContextMaxAgeHours?: number;
   /** Max DM turns to keep as history context. */
   dmHistoryLimit?: number;
   /** Per-DM history overrides keyed by user ID. */
@@ -88,6 +92,8 @@ type WhatsAppSharedConfig = {
   mediaMaxMb?: number;
   /** Disable block streaming for this account. */
   blockStreaming?: boolean;
+  /** Include raw provider error text in user-visible WhatsApp error replies. */
+  exposeErrorText?: boolean;
   /** Merge streamed block replies before sending. */
   blockStreamingCoalesce?: BlockStreamingCoalesceConfig;
   groups?: Record<string, WhatsAppGroupConfig>;

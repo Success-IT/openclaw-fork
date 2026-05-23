@@ -153,6 +153,8 @@ function makeParams(msgOverrides: Partial<WebInboundMsg> = {}) {
     route: makeRoute(),
     groupHistoryKey: "whatsapp:default:+15550000002",
     groupHistories: new Map(),
+    recentGroupContexts: new Map(),
+    recentGroupContextConfig: { limit: 50, maxAgeHours: 24 },
     groupMemberNames: new Map(),
     connectionId: "conn-1",
     verbose: false,

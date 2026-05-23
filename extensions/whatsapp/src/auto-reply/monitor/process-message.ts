@@ -26,6 +26,7 @@ import { whatsappInboundLog } from "../loggers.js";
 import type { WebInboundMsg } from "../types.js";
 import { elide } from "../util.js";
 import { maybeSendAckReaction } from "./ack-reaction.js";
+import type { PendingGroupFollowupMap } from "./group-followup.js";
 import {
   resolveVisibleWhatsAppGroupHistory,
   resolveVisibleWhatsAppReplyContext,
@@ -40,6 +41,8 @@ import {
 } from "./inbound-dispatch.js";
 import { trackBackgroundTask, updateLastRouteInBackground } from "./last-route.js";
 import { buildInboundLine } from "./message-line.js";
+import { trimRecentGroupContextEntries } from "./recent-context.js";
+import type { RecentGroupContextConfig, RecentGroupContextMap } from "./recent-context.js";
 import {
   buildHistoryContextFromEntries,
   createChannelReplyPipeline,
@@ -170,6 +173,9 @@ export async function processMessage(params: {
   route: ReturnType<typeof resolveAgentRoute>;
   groupHistoryKey: string;
   groupHistories: Map<string, GroupHistoryEntry[]>;
+  recentGroupContexts: RecentGroupContextMap;
+  recentGroupContextConfig: RecentGroupContextConfig;
+  groupFollowups?: PendingGroupFollowupMap;
   groupMemberNames: Map<string, Map<string, string>>;
   connectionId: string;
   verbose: boolean;
@@ -275,8 +281,50 @@ export async function processMessage(params: {
           groupAllowFrom: inboundPolicy.groupAllowFrom,
         })
       : undefined;
+  const visibleRecentGroupContext =
+    params.msg.chatType === "group"
+      ? resolveVisibleWhatsAppGroupHistory({
+          history: trimRecentGroupContextEntries({
+            entries: params.recentGroupContexts.get(params.groupHistoryKey) ?? [],
+            config: params.recentGroupContextConfig,
+          }),
+          mode: contextVisibilityMode,
+          groupPolicy: inboundPolicy.groupPolicy,
+          groupAllowFrom: inboundPolicy.groupAllowFrom,
+        })
+      : undefined;
 
   if (params.msg.chatType === "group") {
+    const recentContext = visibleRecentGroupContext ?? [];
+    const historyIds = new Set(
+      (visibleGroupHistory ?? []).map((entry) => entry.id).filter(Boolean),
+    );
+    const recentContextOnly = recentContext.filter(
+      (entry) => !entry.id || !historyIds.has(entry.id),
+    );
+    if (recentContextOnly.length > 0) {
+      const recentEntries: HistoryEntry[] = recentContextOnly.map((m) => ({
+        sender: m.sender,
+        body: m.body,
+        timestamp: m.timestamp,
+      }));
+      combinedBody = buildHistoryContextFromEntries({
+        entries: recentEntries,
+        currentMessage: combinedBody,
+        excludeLast: true,
+        formatEntry: (entry) => {
+          return formatInboundEnvelope({
+            channel: "WhatsApp",
+            from: conversationId,
+            timestamp: entry.timestamp,
+            body: entry.body,
+            chatType: "group",
+            senderLabel: entry.sender,
+            envelope: envelopeOptions,
+          });
+        },
+      });
+    }
     const history = visibleGroupHistory ?? [];
     if (history.length > 0) {
       const historyEntries: HistoryEntry[] = history.map((m) => ({
@@ -420,6 +468,7 @@ export async function processMessage(params: {
     commandAuthorized,
     conversationId,
     groupHistory: visibleGroupHistory,
+    recentConversationHistory: visibleRecentGroupContext,
     groupMemberRoster: params.groupMemberNames.get(params.groupHistoryKey),
     groupSystemPrompt: conversationSystemPrompt,
     groupTier,
@@ -480,6 +529,7 @@ export async function processMessage(params: {
     conversationId,
     deliverReply: deliverWebReply,
     groupHistories: params.groupHistories,
+    groupFollowups: params.groupFollowups,
     groupHistoryKey: params.groupHistoryKey,
     maxMediaBytes: params.maxMediaBytes,
     maxMediaTextChunkLimit: params.maxMediaTextChunkLimit,

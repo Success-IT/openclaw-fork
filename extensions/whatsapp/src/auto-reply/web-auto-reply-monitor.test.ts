@@ -4,6 +4,7 @@ import path from "node:path";
 import { resolveAgentRoute } from "openclaw/plugin-sdk/routing";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildMentionConfig } from "./mentions.js";
+import { GROUP_FOLLOWUP_WINDOW_MS } from "./monitor/group-followup.js";
 import { applyGroupGating, type GroupHistoryEntry } from "./monitor/group-gating.js";
 import { buildInboundLine, formatReplyContext } from "./monitor/message-line.js";
 
@@ -41,6 +42,7 @@ async function runGroupGating(params: {
   conversationId?: string;
   agentId?: string;
   selfChatMode?: boolean;
+  groupFollowups?: Map<string, { senderKey: string; expiresAt: number }>;
 }) {
   const groupHistories = new Map<string, GroupHistoryEntry[]>();
   const conversationId = params.conversationId ?? "123@g.us";
@@ -57,6 +59,7 @@ async function runGroupGating(params: {
     baseMentionConfig,
     selfChatMode: params.selfChatMode,
     groupHistories,
+    groupFollowups: params.groupFollowups,
     groupHistoryLimit: 10,
     groupMemberNames: new Map(),
     logVerbose: () => {},
@@ -393,6 +396,75 @@ describe("applyGroupGating", () => {
     });
 
     expect(result.shouldProcess).toBe(false);
+    expect(groupHistories.get("whatsapp:default:group:123@g.us")?.length).toBe(1);
+  });
+
+  it("continues a pending group follow-up from the same sender without a fresh mention", async () => {
+    const followups = new Map<string, { senderKey: string; expiresAt: number }>([
+      [
+        "whatsapp:default:group:123@g.us",
+        { senderKey: "+111", expiresAt: Date.now() + GROUP_FOLLOWUP_WINDOW_MS },
+      ],
+    ]);
+
+    const { result, groupHistories } = await runGroupGating({
+      cfg: makeConfig({}),
+      groupFollowups: followups,
+      msg: createGroupMessage({
+        id: "g-followup",
+        body: "subject you can just put catch up and send",
+        senderE164: "+111",
+        senderName: "Alice",
+      }),
+    });
+
+    expect(result.shouldProcess).toBe(true);
+    expect(followups.has("whatsapp:default:group:123@g.us")).toBe(false);
+    expect(groupHistories.get("whatsapp:default:group:123@g.us") ?? []).toHaveLength(0);
+  });
+
+  it("does not continue expired pending group follow-ups", async () => {
+    const followups = new Map<string, { senderKey: string; expiresAt: number }>([
+      ["whatsapp:default:group:123@g.us", { senderKey: "+111", expiresAt: Date.now() - 1 }],
+    ]);
+
+    const { result, groupHistories } = await runGroupGating({
+      cfg: makeConfig({}),
+      groupFollowups: followups,
+      msg: createGroupMessage({
+        id: "g-followup-expired",
+        body: "catch up",
+        senderE164: "+111",
+        senderName: "Alice",
+      }),
+    });
+
+    expect(result.shouldProcess).toBe(false);
+    expect(followups.has("whatsapp:default:group:123@g.us")).toBe(false);
+    expect(groupHistories.get("whatsapp:default:group:123@g.us")?.length).toBe(1);
+  });
+
+  it("does not continue pending group follow-ups from another sender", async () => {
+    const followups = new Map<string, { senderKey: string; expiresAt: number }>([
+      [
+        "whatsapp:default:group:123@g.us",
+        { senderKey: "+111", expiresAt: Date.now() + GROUP_FOLLOWUP_WINDOW_MS },
+      ],
+    ]);
+
+    const { result, groupHistories } = await runGroupGating({
+      cfg: makeConfig({}),
+      groupFollowups: followups,
+      msg: createGroupMessage({
+        id: "g-followup-other",
+        body: "catch up",
+        senderE164: "+222",
+        senderName: "Bob",
+      }),
+    });
+
+    expect(result.shouldProcess).toBe(false);
+    expect(followups.has("whatsapp:default:group:123@g.us")).toBe(true);
     expect(groupHistories.get("whatsapp:default:group:123@g.us")?.length).toBe(1);
   });
 

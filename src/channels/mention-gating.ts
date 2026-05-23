@@ -34,6 +34,7 @@ export type MentionGateWithBypassResult = MentionGateResult & {
 export type InboundImplicitMentionKind =
   | "reply_to_bot"
   | "quoted_bot"
+  | "pending_followup"
   | "bot_thread_participant"
   | "native";
 

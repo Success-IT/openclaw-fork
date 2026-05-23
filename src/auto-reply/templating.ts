@@ -45,6 +45,16 @@ export type MsgContext = {
     timestamp?: number;
   }>;
   /**
+   * Rolling recent chat history retained across replies (untrusted user content).
+   * This is separate from InboundHistory, which may only contain messages since
+   * the previous bot reply.
+   */
+  RecentConversationHistory?: Array<{
+    sender: string;
+    body: string;
+    timestamp?: number;
+  }>;
+  /**
    * Raw message body without structural context (history, sender labels).
    * Legacy alias for CommandBody. Falls back to Body if not set.
    */

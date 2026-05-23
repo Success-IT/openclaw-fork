@@ -1,4 +1,5 @@
 import type { WebInboundMsg } from "../types.js";
+import { armGroupFollowup, type PendingGroupFollowupMap } from "./group-followup.js";
 import { formatGroupMembers } from "./group-members.js";
 import type { GroupHistoryEntry } from "./inbound-context.js";
 import {
@@ -97,6 +98,7 @@ export function buildWhatsAppInboundContext(params: {
   commandAuthorized?: boolean;
   conversationId: string;
   groupHistory?: GroupHistoryEntry[];
+  recentConversationHistory?: GroupHistoryEntry[];
   groupMemberRoster?: Map<string, string>;
   groupSystemPrompt?: string;
   groupTier?: string;
@@ -116,11 +118,20 @@ export function buildWhatsAppInboundContext(params: {
           timestamp: entry.timestamp,
         }))
       : undefined;
+  const recentConversationHistory =
+    params.msg.chatType === "group"
+      ? (params.recentConversationHistory ?? []).map((entry) => ({
+          sender: entry.sender,
+          body: entry.body,
+          timestamp: entry.timestamp,
+        }))
+      : undefined;
 
   const result = finalizeInboundContext({
     Body: params.combinedBody,
     BodyForAgent: params.bodyForAgent ?? params.msg.body,
     InboundHistory: inboundHistory,
+    RecentConversationHistory: recentConversationHistory,
     RawBody: params.rawBody ?? params.msg.body,
     CommandBody: params.commandBody ?? params.msg.body,
     Transcript: params.transcript,
@@ -254,6 +265,7 @@ export async function dispatchWhatsAppBufferedReply(params: {
     tableMode?: ReturnType<typeof resolveMarkdownTableMode>;
   }) => Promise<void>;
   groupHistories: Map<string, GroupHistoryEntry[]>;
+  groupFollowups?: PendingGroupFollowupMap;
   groupHistoryKey: string;
   maxMediaBytes: number;
   maxMediaTextChunkLimit?: number;
@@ -327,6 +339,14 @@ export async function dispatchWhatsAppBufferedReply(params: {
         if (shouldLogVerbose()) {
           const preview = deliveryPayload.text != null ? reply.text : "<media>";
           logVerbose(`Reply body: ${preview}${reply.hasMedia ? " (media)" : ""} -> ${fromDisplay}`);
+        }
+        if (params.groupFollowups && params.msg.chatType === "group") {
+          armGroupFollowup({
+            followups: params.groupFollowups,
+            groupHistoryKey: params.groupHistoryKey,
+            msg: params.msg,
+            text: deliveryPayload.text,
+          });
         }
       },
       onReplyStart: params.msg.sendComposing,

@@ -26,6 +26,7 @@ function makeProcessMessageArgs(params: {
   groupHistoryKey: string;
   cfg?: unknown;
   groupHistories?: Map<string, Array<{ sender: string; body: string }>>;
+  recentGroupContexts?: Map<string, Array<{ sender: string; body: string; timestamp?: number }>>;
   groupHistory?: Array<{ sender: string; body: string }>;
   rememberSentText?: (text: string | undefined, opts: unknown) => void;
 }) {
@@ -39,6 +40,8 @@ function makeProcessMessageArgs(params: {
     } as any,
     groupHistoryKey: params.groupHistoryKey,
     groupHistories: params.groupHistories ?? new Map(),
+    recentGroupContexts: params.recentGroupContexts ?? new Map(),
+    recentGroupContextConfig: { limit: 50, maxAgeHours: 24 },
     groupMemberNames: new Map(),
     connectionId: "conn",
     verbose: false,
@@ -176,6 +179,63 @@ describe("web processMessage inbound context", () => {
     const ctx = capturedCtx as any;
     expectInboundContextContract(ctx);
     expect(ctx.Timestamp).toBe(1737158400000);
+  });
+
+  it("keeps recent WhatsApp group context separate from pending history", async () => {
+    const recentGroupContexts = new Map([
+      [
+        "123@g.us",
+        [
+          {
+            sender: "Jensen",
+            body: "Call with Gleb is Wednesday 20 May at 22:00 SGT",
+            timestamp: 1779292800000,
+          },
+          {
+            sender: "Gleb",
+            body: "my address is gdrobkov@charlesriverdata.com",
+            timestamp: 1779300000000,
+          },
+        ],
+      ],
+    ]);
+
+    await processMessage(
+      makeProcessMessageArgs({
+        routeSessionKey: "agent:main:whatsapp:group:123",
+        groupHistoryKey: "123@g.us",
+        groupHistory: [],
+        recentGroupContexts,
+        msg: {
+          id: "msg2",
+          from: "123@g.us",
+          to: "+15550001111",
+          chatType: "group",
+          body: "@Laylah just add gdrobkov@charlesriverdata.com to the invite",
+          timestamp: 1779300100000,
+          senderName: "Jensen",
+          senderJid: "jensen@s.whatsapp.net",
+          groupSubject: "Gleb catch up",
+          groupParticipants: [],
+        },
+      }),
+    );
+
+    const ctx = capturedCtx as any;
+    expect(ctx.InboundHistory).toEqual([]);
+    expect(ctx.RecentConversationHistory).toEqual([
+      {
+        sender: "Jensen",
+        body: "Call with Gleb is Wednesday 20 May at 22:00 SGT",
+        timestamp: 1779292800000,
+      },
+      {
+        sender: "Gleb",
+        body: "my address is gdrobkov@charlesriverdata.com",
+        timestamp: 1779300000000,
+      },
+    ]);
+    expect(ctx.Body).toContain("gdrobkov@charlesriverdata.com");
   });
 
   it("includes group tier and system prompt in inbound context", async () => {

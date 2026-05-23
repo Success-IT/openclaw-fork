@@ -194,6 +194,12 @@ export function buildInboundUserContextPrefix(
   const timestampStr = formatConversationTimestamp(ctx.Timestamp, envelope);
   const inboundHistory = Array.isArray(ctx.InboundHistory) ? ctx.InboundHistory : [];
   const boundedHistory = inboundHistory.slice(-MAX_UNTRUSTED_HISTORY_ENTRIES);
+  const recentConversationHistory = Array.isArray(ctx.RecentConversationHistory)
+    ? ctx.RecentConversationHistory
+    : [];
+  const boundedRecentConversationHistory = recentConversationHistory.slice(
+    -MAX_UNTRUSTED_HISTORY_ENTRIES,
+  );
 
   // Keep volatile conversation/message identifiers in the user-role block so the system
   // prompt stays byte-stable across task-scoped sessions and reply turns.
@@ -232,6 +238,12 @@ export function buildInboundUserContextPrefix(
     has_thread_starter: sanitizePromptBody(ctx.ThreadStarterBody) ? true : undefined,
     history_count: boundedHistory.length > 0 ? boundedHistory.length : undefined,
     history_truncated: inboundHistory.length > MAX_UNTRUSTED_HISTORY_ENTRIES ? true : undefined,
+    recent_context_count:
+      boundedRecentConversationHistory.length > 0
+        ? boundedRecentConversationHistory.length
+        : undefined,
+    recent_context_truncated:
+      recentConversationHistory.length > MAX_UNTRUSTED_HISTORY_ENTRIES ? true : undefined,
   };
   if (Object.values(conversationInfo).some((v) => v !== undefined)) {
     blocks.push(
@@ -319,6 +331,19 @@ export function buildInboundUserContextPrefix(
       formatUntrustedJsonBlock(
         "Chat history since last reply (untrusted, for context):",
         boundedHistory.map((entry) => ({
+          sender: sanitizePromptBody(entry.sender),
+          timestamp_ms: entry.timestamp,
+          body: sanitizePromptBody(entry.body),
+        })),
+      ),
+    );
+  }
+
+  if (boundedRecentConversationHistory.length > 0) {
+    blocks.push(
+      formatUntrustedJsonBlock(
+        "Recent chat history (untrusted, for context):",
+        boundedRecentConversationHistory.map((entry) => ({
           sender: sanitizePromptBody(entry.sender),
           timestamp_ms: entry.timestamp,
           body: sanitizePromptBody(entry.body),

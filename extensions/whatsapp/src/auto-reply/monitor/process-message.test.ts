@@ -188,6 +188,8 @@ function callProcessMessage(overrides: { cfg?: unknown } = {}) {
     route: baseRoute as never,
     groupHistoryKey: "whatsapp:default:group:123@g.us",
     groupHistories: new Map(),
+    recentGroupContexts: new Map(),
+    recentGroupContextConfig: { limit: 50, maxAgeHours: 24 },
     groupMemberNames: new Map(),
     connectionId: "conn-1",
     verbose: false,

@@ -12,11 +12,14 @@ import type { WebInboundMsg } from "../types.js";
 import { maybeSendAckReaction } from "./ack-reaction.js";
 import { maybeBroadcastMessage } from "./broadcast.js";
 import type { EchoTracker } from "./echo.js";
+import type { PendingGroupFollowupMap } from "./group-followup.js";
 import type { GroupHistoryEntry } from "./group-gating.js";
 import { applyGroupGating } from "./group-gating.js";
 import { updateLastRouteInBackground } from "./last-route.js";
 import { resolvePeerId } from "./peer.js";
 import { processMessage } from "./process-message.js";
+import { appendRecentGroupContextEntry } from "./recent-context.js";
+import type { RecentGroupContextConfig, RecentGroupContextMap } from "./recent-context.js";
 
 export function createWebOnMessageHandler(params: {
   cfg: ReturnType<typeof loadConfig>;
@@ -25,6 +28,9 @@ export function createWebOnMessageHandler(params: {
   maxMediaBytes: number;
   groupHistoryLimit: number;
   groupHistories: Map<string, GroupHistoryEntry[]>;
+  recentGroupContexts: RecentGroupContextMap;
+  recentGroupContextConfig: RecentGroupContextConfig;
+  groupFollowups?: PendingGroupFollowupMap;
   groupMemberNames: Map<string, Map<string, string>>;
   echoTracker: EchoTracker;
   backgroundTasks: Set<Promise<unknown>>;
@@ -50,6 +56,9 @@ export function createWebOnMessageHandler(params: {
       route,
       groupHistoryKey,
       groupHistories: params.groupHistories,
+      recentGroupContexts: params.recentGroupContexts,
+      recentGroupContextConfig: params.recentGroupContextConfig,
+      groupFollowups: params.groupFollowups,
       groupMemberNames: params.groupMemberNames,
       connectionId: params.connectionId,
       verbose: params.verbose,
@@ -116,6 +125,18 @@ export function createWebOnMessageHandler(params: {
 
     if (msg.chatType === "group") {
       const sender = getSenderIdentity(msg);
+      appendRecentGroupContextEntry({
+        histories: params.recentGroupContexts,
+        key: groupHistoryKey,
+        config: params.recentGroupContextConfig,
+        entry: {
+          sender: sender.name ?? sender.e164 ?? msg.senderName ?? msg.senderE164 ?? "Unknown",
+          body: msg.body,
+          timestamp: msg.timestamp,
+          id: msg.id,
+          senderJid: sender.jid ?? msg.senderJid,
+        },
+      });
       const metaCtx = {
         From: msg.from,
         To: msg.to,
@@ -155,6 +176,7 @@ export function createWebOnMessageHandler(params: {
         authDir: params.account.authDir,
         selfChatMode: params.account.selfChatMode,
         groupHistories: params.groupHistories,
+        groupFollowups: params.groupFollowups,
         groupHistoryLimit: params.groupHistoryLimit,
         groupMemberNames: params.groupMemberNames,
         logVerbose,

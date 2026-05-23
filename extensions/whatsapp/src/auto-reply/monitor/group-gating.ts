@@ -12,6 +12,7 @@ import { buildMentionConfig, debugMention, resolveOwnerList } from "../mentions.
 import type { WebInboundMsg } from "../types.js";
 import { stripMentionsForCommand } from "./commands.js";
 import { resolveGroupActivationFor } from "./group-activation.js";
+import { consumeGroupFollowup, type PendingGroupFollowupMap } from "./group-followup.js";
 import {
   hasControlCommand,
   implicitMentionKindWhen,
@@ -40,6 +41,7 @@ type ApplyGroupGatingParams = {
   baseMentionConfig: MentionConfig;
   authDir?: string;
   groupHistories: Map<string, GroupHistoryEntry[]>;
+  groupFollowups?: PendingGroupFollowupMap;
   groupHistoryLimit: number;
   groupMemberNames: Map<string, Map<string, string>>;
   selfChatMode?: boolean;
@@ -173,6 +175,17 @@ export async function applyGroupGating(params: ApplyGroupGatingParams) {
     "quoted_bot",
     !implicitReplyToSelf && identitiesOverlap(self, replyContext?.sender),
   );
+  if (
+    params.groupFollowups &&
+    !wasMentioned &&
+    consumeGroupFollowup({
+      followups: params.groupFollowups,
+      groupHistoryKey: params.groupHistoryKey,
+      msg: params.msg,
+    })
+  ) {
+    implicitMentionKinds.push("pending_followup");
+  }
   const mentionDecision = resolveInboundMentionDecision({
     facts: {
       canDetectMention: true,
