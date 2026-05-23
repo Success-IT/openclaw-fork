@@ -21,6 +21,7 @@ import type {
   CronRunStatus,
   CronRunTelemetry,
 } from "../types.js";
+import { isQuietCronCommandStdout, runCronCommandPayload } from "./command-payload.js";
 import {
   DEFAULT_ERROR_BACKOFF_SCHEDULE_MS,
   computeJobPreviousRunAtMs,
@@ -1293,6 +1294,9 @@ async function executeDetachedCronJob(
       delivery?: CronDeliveryTrace;
     }
 > {
+  if (job.payload.kind === "command") {
+    return await executeCommandCronJob(state, job, abortSignal, resolveAbortError);
+  }
   if (job.payload.kind !== "agentTurn") {
     return { status: "skipped", error: "isolated job requires payload.kind=agentTurn" };
   }
@@ -1323,6 +1327,98 @@ async function executeDetachedCronJob(
     provider: res.provider,
     usage: res.usage,
   };
+}
+
+async function executeCommandCronJob(
+  state: CronServiceState,
+  job: CronJob,
+  abortSignal: AbortSignal | undefined,
+  resolveAbortError: () => { status: "error"; error: string },
+): Promise<
+  CronRunOutcome &
+    CronRunTelemetry & {
+      delivered?: boolean;
+      deliveryAttempted?: boolean;
+      delivery?: CronDeliveryTrace;
+    }
+> {
+  if (job.payload.kind !== "command") {
+    return { status: "skipped", error: "command job requires payload.kind=command" };
+  }
+  if (abortSignal?.aborted) {
+    return resolveAbortError();
+  }
+
+  const result = await runCronCommandPayload(job.payload, abortSignal);
+  const stdout = result.stdout.trim();
+  const stderr = result.stderr.trim();
+  const summary = stdout || stderr || undefined;
+
+  if (abortSignal?.aborted || result.timedOut) {
+    return {
+      status: "error",
+      error: timeoutErrorMessage(),
+      summary,
+    };
+  }
+  if (result.exitCode !== 0) {
+    const codeLabel =
+      result.exitCode === null ? `signal ${result.signal ?? "unknown"}` : `exit ${result.exitCode}`;
+    return {
+      status: "error",
+      error: stderr || stdout || `cron command failed with ${codeLabel}`,
+      summary,
+    };
+  }
+
+  if (!stdout || isQuietCronCommandStdout(job.payload, stdout)) {
+    return { status: "ok", summary };
+  }
+
+  if (!resolveCronDeliveryPlan(job).requested) {
+    return { status: "ok", summary };
+  }
+
+  if (!state.deps.sendCronCommandOutput) {
+    return {
+      status: "error",
+      error: "cron command output delivery is not configured",
+      summary,
+      delivered: false,
+      deliveryAttempted: false,
+    };
+  }
+
+  try {
+    const delivery = await state.deps.sendCronCommandOutput({
+      job,
+      text: stdout,
+      abortSignal,
+    });
+    return {
+      status: "ok",
+      summary,
+      delivered: delivery.delivered,
+      deliveryAttempted: true,
+      delivery: delivery.delivery,
+    };
+  } catch (error) {
+    if (job.delivery?.bestEffort === true) {
+      return {
+        status: "ok",
+        summary,
+        delivered: false,
+        deliveryAttempted: true,
+      };
+    }
+    return {
+      status: "error",
+      error: `cron command output delivery failed: ${normalizeCronRunErrorText(error)}`,
+      summary,
+      delivered: false,
+      deliveryAttempted: true,
+    };
+  }
 }
 
 /**

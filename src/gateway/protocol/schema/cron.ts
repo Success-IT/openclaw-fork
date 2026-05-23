@@ -18,6 +18,24 @@ function cronAgentTurnPayloadSchema(params: { message: TSchema; toolsAllow: TSch
   );
 }
 
+function cronCommandPayloadSchema(params: {
+  argv: TSchema;
+  cwd: TSchema;
+  timeoutSeconds: TSchema;
+  quietStdout: TSchema;
+}) {
+  return Type.Object(
+    {
+      kind: Type.Literal("command"),
+      argv: params.argv,
+      cwd: Type.Optional(params.cwd),
+      timeoutSeconds: Type.Optional(params.timeoutSeconds),
+      quietStdout: Type.Optional(params.quietStdout),
+    },
+    { additionalProperties: false },
+  );
+}
+
 const CronSessionTargetSchema = Type.Union([
   Type.Literal("main"),
   Type.Literal("isolated"),
@@ -139,6 +157,12 @@ export const CronPayloadSchema = Type.Union([
     message: NonEmptyString,
     toolsAllow: Type.Array(Type.String()),
   }),
+  cronCommandPayloadSchema({
+    argv: Type.Array(NonEmptyString, { minItems: 1 }),
+    cwd: NonEmptyString,
+    timeoutSeconds: Type.Number({ minimum: 0 }),
+    quietStdout: Type.Array(Type.String()),
+  }),
 ]);
 
 export const CronPayloadPatchSchema = Type.Union([
@@ -152,6 +176,12 @@ export const CronPayloadPatchSchema = Type.Union([
   cronAgentTurnPayloadSchema({
     message: Type.Optional(NonEmptyString),
     toolsAllow: Type.Union([Type.Array(Type.String()), Type.Null()]),
+  }),
+  cronCommandPayloadSchema({
+    argv: Type.Optional(Type.Array(NonEmptyString, { minItems: 1 })),
+    cwd: Type.Union([NonEmptyString, Type.Null()]),
+    timeoutSeconds: Type.Union([Type.Number({ minimum: 0 }), Type.Null()]),
+    quietStdout: Type.Union([Type.Array(Type.String()), Type.Null()]),
   }),
 ]);
 

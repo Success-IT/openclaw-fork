@@ -354,6 +354,84 @@ export function buildGatewayCronService(params: {
         });
       }
     },
+    sendCronCommandOutput: async ({ job, text }) => {
+      const { agentId, cfg: runtimeConfig } = resolveCronAgent(job.agentId);
+      const plan = resolveCronDeliveryPlan(job);
+      if (!plan.requested) {
+        return { delivered: undefined };
+      }
+
+      if (plan.mode === "webhook") {
+        const webhookToken = normalizeOptionalString(params.cfg.cron?.webhookToken);
+        const webhookUrl = normalizeHttpWebhookUrl(plan.to);
+        if (!webhookUrl) {
+          throw new Error("cron command webhook delivery requires a valid delivery.to URL");
+        }
+        await postCronWebhook({
+          webhookUrl,
+          webhookToken,
+          payload: {
+            jobId: job.id,
+            jobName: job.name,
+            message: text,
+          },
+          logContext: { jobId: job.id },
+          blockedLog: "cron: command webhook delivery blocked by SSRF guard",
+          failedLog: "cron: command webhook delivery failed",
+          logger: cronLogger,
+        });
+        return {
+          delivered: true,
+          delivery: {
+            intended: {
+              channel: plan.channel,
+              to: plan.to,
+              accountId: plan.accountId,
+              source: plan.channel ? "explicit" : undefined,
+            },
+            delivered: true,
+          },
+        };
+      }
+
+      const target = await resolveDeliveryTarget(runtimeConfig, agentId, {
+        channel: plan.channel ?? "last",
+        to: plan.to,
+        accountId: plan.accountId,
+        sessionKey: job.sessionKey,
+      });
+      if (!target.ok) {
+        throw target.error;
+      }
+      await deliverOutboundPayloads({
+        cfg: runtimeConfig,
+        channel: target.channel,
+        to: target.to,
+        accountId: target.accountId,
+        threadId: target.threadId,
+        payloads: [{ text }],
+        deps: createOutboundSendDeps(params.deps),
+      });
+      return {
+        delivered: true,
+        delivery: {
+          intended: {
+            channel: plan.channel,
+            to: plan.to,
+            accountId: plan.accountId,
+            source: plan.channel ? "explicit" : "last",
+          },
+          resolved: {
+            ok: true,
+            channel: target.channel,
+            to: target.to,
+            accountId: target.accountId,
+            threadId: target.threadId,
+          },
+          delivered: true,
+        },
+      };
+    },
     sendCronFailureAlert: async ({ job, text, channel, to, mode, accountId }) => {
       const { agentId, cfg: runtimeConfig } = resolveCronAgent(job.agentId);
       const webhookToken = normalizeOptionalString(params.cfg.cron?.webhookToken);

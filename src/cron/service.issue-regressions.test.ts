@@ -60,6 +60,79 @@ describe("Cron issue regressions", () => {
     cron.stop();
   });
 
+  it("runs command payloads without invoking an agent and suppresses quiet stdout", async () => {
+    const store = cronIssueRegressionFixtures.makeStorePath();
+    const runIsolatedAgentJob = vi.fn().mockResolvedValue({ status: "ok", summary: "agent" });
+    const sendCronCommandOutput = vi.fn().mockResolvedValue({ delivered: true });
+    const cron = new CronService({
+      cronEnabled: false,
+      storePath: store.storePath,
+      log: noopLogger,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeatNow: vi.fn(),
+      runIsolatedAgentJob,
+      sendCronCommandOutput,
+    });
+
+    const job = await cron.add({
+      name: "node version",
+      enabled: true,
+      schedule: { kind: "at", at: new Date(Date.now() - 1000).toISOString() },
+      sessionTarget: "isolated",
+      wakeMode: "next-heartbeat",
+      deleteAfterRun: false,
+      delivery: { mode: "announce", channel: "discord", to: "channel-1" },
+      payload: {
+        kind: "command",
+        argv: [process.execPath, "--version"],
+        quietStdout: [process.version],
+      },
+    });
+
+    const result = await cron.run(job.id, "force");
+    const updated = cron.getJob(job.id);
+
+    expect(result).toEqual({ ok: true, ran: true });
+    expect(runIsolatedAgentJob).not.toHaveBeenCalled();
+    expect(sendCronCommandOutput).not.toHaveBeenCalled();
+    expect(updated?.state.lastRunStatus).toBe("ok");
+    expect(updated?.state.lastDeliveryStatus).toBe("unknown");
+
+    cron.stop();
+  });
+
+  it("marks command payload non-zero exits as cron failures", async () => {
+    const store = cronIssueRegressionFixtures.makeStorePath();
+    const cron = new CronService({
+      cronEnabled: false,
+      storePath: store.storePath,
+      log: noopLogger,
+      enqueueSystemEvent: vi.fn(),
+      requestHeartbeatNow: vi.fn(),
+      runIsolatedAgentJob: vi.fn().mockResolvedValue({ status: "ok", summary: "agent" }),
+    });
+
+    const job = await cron.add({
+      name: "bad node flag",
+      enabled: true,
+      schedule: { kind: "at", at: new Date(Date.now() - 1000).toISOString() },
+      sessionTarget: "isolated",
+      wakeMode: "next-heartbeat",
+      deleteAfterRun: false,
+      delivery: { mode: "none" },
+      payload: { kind: "command", argv: [process.execPath, "--definitely-not-a-node-flag"] },
+    });
+
+    const result = await cron.run(job.id, "force");
+    const updated = cron.getJob(job.id);
+
+    expect(result).toEqual({ ok: true, ran: true });
+    expect(updated?.state.lastRunStatus).toBe("error");
+    expect(updated?.state.lastError).toBeTruthy();
+
+    cron.stop();
+  });
+
   it("repairs isolated every jobs missing createdAtMs and sets nextWakeAtMs", async () => {
     const store = cronIssueRegressionFixtures.makeStorePath();
     await writeCronStoreSnapshot(store.storePath, [

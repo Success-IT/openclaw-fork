@@ -166,6 +166,9 @@ export function assertSupportedJobSpec(job: Pick<CronJob, "sessionTarget" | "pay
   if (job.sessionTarget.startsWith("session:")) {
     assertSafeCronSessionTargetId(job.sessionTarget.slice(8));
   }
+  if (job.payload.kind === "command") {
+    return;
+  }
   if (job.sessionTarget === "main" && job.payload.kind !== "systemEvent") {
     throw new Error('main cron jobs require payload.kind="systemEvent"');
   }
@@ -702,6 +705,32 @@ function mergeCronPayload(existing: CronPayload, patch: CronPayloadPatch): CronP
     return { kind: "systemEvent", text };
   }
 
+  if (patch.kind === "command") {
+    if (existing.kind !== "command") {
+      return buildPayloadFromPatch(patch);
+    }
+    const next: Extract<CronPayload, { kind: "command" }> = { ...existing };
+    if (Array.isArray(patch.argv) && patch.argv.length > 0) {
+      next.argv = patch.argv;
+    }
+    if (typeof patch.cwd === "string") {
+      next.cwd = patch.cwd;
+    } else if (patch.cwd === null) {
+      delete next.cwd;
+    }
+    if (typeof patch.timeoutSeconds === "number") {
+      next.timeoutSeconds = patch.timeoutSeconds;
+    } else if (patch.timeoutSeconds === null) {
+      delete next.timeoutSeconds;
+    }
+    if (Array.isArray(patch.quietStdout)) {
+      next.quietStdout = patch.quietStdout;
+    } else if (patch.quietStdout === null) {
+      delete next.quietStdout;
+    }
+    return next;
+  }
+
   if (existing.kind !== "agentTurn") {
     return buildPayloadFromPatch(patch);
   }
@@ -742,6 +771,19 @@ function buildPayloadFromPatch(patch: CronPayloadPatch): CronPayload {
       throw new Error('cron.update payload.kind="systemEvent" requires text');
     }
     return { kind: "systemEvent", text: patch.text };
+  }
+
+  if (patch.kind === "command") {
+    if (!Array.isArray(patch.argv) || patch.argv.length === 0) {
+      throw new Error('cron.update payload.kind="command" requires argv');
+    }
+    return {
+      kind: "command",
+      argv: patch.argv,
+      cwd: typeof patch.cwd === "string" ? patch.cwd : undefined,
+      timeoutSeconds: typeof patch.timeoutSeconds === "number" ? patch.timeoutSeconds : undefined,
+      quietStdout: Array.isArray(patch.quietStdout) ? patch.quietStdout : undefined,
+    };
   }
 
   if (typeof patch.message !== "string" || patch.message.length === 0) {
