@@ -337,9 +337,6 @@ export const resolveBuildRequirement = (deps) => {
         ? { shouldBuild: true, reason: "dirty_watched_tree" }
         : { shouldBuild: false, reason: "clean" };
     }
-    if (dirty === false) {
-      return { shouldBuild: false, reason: "clean" };
-    }
   }
 
   if (hasSourceMtimeChanged(stamp.mtime, deps)) {
