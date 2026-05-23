@@ -165,6 +165,29 @@ describe("telegram topic agentId schema", () => {
     });
   });
 
+  it("accepts account wildcard group runtime overrides", () => {
+    expectTelegramConfigValid({
+      accounts: {
+        insa: {
+          groups: {
+            "*": {
+              allowFrom: ["123456789"],
+              groupPolicy: "allowlist",
+              requireMention: true,
+              skills: ["product-lane"],
+              systemPrompt: "Keep replies focused.",
+              tier: "trusted",
+              tools: { allow: ["message.send"] },
+              toolsBySender: {
+                "id:123456789": { allow: ["sessions.list"] },
+              },
+            },
+          },
+        },
+      },
+    });
+  });
+
   it("accepts valid agentId in forum group topic config", () => {
     const res = TelegramConfigSchema.safeParse({
       groups: {
