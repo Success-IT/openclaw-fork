@@ -93,6 +93,27 @@ describe("resolveInboundMentionDecision", () => {
     expect(res.shouldSkip).toBe(false);
   });
 
+  it("allows pending follow-up continuations as implicit mentions", () => {
+    const res = resolveInboundMentionDecision({
+      facts: {
+        canDetectMention: true,
+        wasMentioned: false,
+        implicitMentionKinds: ["pending_followup"],
+      },
+      policy: {
+        isGroup: true,
+        requireMention: true,
+        allowTextCommands: false,
+        hasControlCommand: false,
+        commandAuthorized: false,
+      },
+    });
+
+    expect(res.matchedImplicitMentionKinds).toEqual(["pending_followup"]);
+    expect(res.effectiveWasMentioned).toBe(true);
+    expect(res.shouldSkip).toBe(false);
+  });
+
   it("filters implicit mention kinds through the allowlist", () => {
     const res = resolveInboundMentionDecision({
       facts: {
