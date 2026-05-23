@@ -1,9 +1,9 @@
 import {
   DiscordError,
   RateLimitError,
-  RequestClient,
   type DiscordRawError,
   type RequestData,
+  type RequestClient,
   type RequestClientOptions,
 } from "@buape/carbon";
 import { isRecord } from "openclaw/plugin-sdk/text-runtime";
@@ -282,7 +282,7 @@ class ProxyRequestClientCompat {
         typeof payload === "string"
           ? { content: payload, attachments: [] }
           : { ...payload, attachments: [] };
-      const formData = new UndiciFormData();
+      const formData = this.customFetch ? new UndiciFormData() : new FormData();
       const files = getMultipartFiles(payload);
 
       for (const [index, file] of files.entries()) {
@@ -482,8 +482,5 @@ export function createDiscordRequestClient(
   token: string,
   options?: ProxyRequestClientOptions,
 ): RequestClient {
-  if (!options?.fetch) {
-    return new RequestClient(token, options);
-  }
   return new ProxyRequestClientCompat(token, options) as unknown as RequestClient;
 }
