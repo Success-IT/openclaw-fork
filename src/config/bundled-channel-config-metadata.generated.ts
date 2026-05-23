@@ -15186,6 +15186,15 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
           minimum: 0,
           maximum: 9007199254740991,
         },
+        recentContextLimit: {
+          type: "integer",
+          minimum: 0,
+          maximum: 9007199254740991,
+        },
+        recentContextMaxAgeHours: {
+          type: "number",
+          minimum: 0,
+        },
         dmHistoryLimit: {
           type: "integer",
           minimum: 0,
@@ -15218,6 +15227,9 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
           enum: ["length", "newline"],
         },
         blockStreaming: {
+          type: "boolean",
+        },
+        exposeErrorText: {
           type: "boolean",
         },
         blockStreamingCoalesce: {
@@ -15512,6 +15524,15 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                 minimum: 0,
                 maximum: 9007199254740991,
               },
+              recentContextLimit: {
+                type: "integer",
+                minimum: 0,
+                maximum: 9007199254740991,
+              },
+              recentContextMaxAgeHours: {
+                type: "number",
+                minimum: 0,
+              },
               dmHistoryLimit: {
                 type: "integer",
                 minimum: 0,
@@ -15544,6 +15565,9 @@ export const GENERATED_BUNDLED_CHANNEL_CONFIG_METADATA = [
                 enum: ["length", "newline"],
               },
               blockStreaming: {
+                type: "boolean",
+              },
+              exposeErrorText: {
                 type: "boolean",
               },
               blockStreamingCoalesce: {

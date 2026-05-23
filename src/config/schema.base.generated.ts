@@ -5916,6 +5916,14 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                   description:
                     "Optional per-agent default for fast mode. Applies when no per-message or session fast-mode override is set.",
                 },
+                timeoutSeconds: {
+                  type: "integer",
+                  exclusiveMinimum: 0,
+                  maximum: 9007199254740991,
+                  title: "Agent Timeout (sec)",
+                  description:
+                    "Optional per-agent response timeout in seconds. Overrides agents.defaults.timeoutSeconds for this agent when no per-run timeout override is set.",
+                },
                 skills: {
                   type: "array",
                   items: {
@@ -6576,6 +6584,15 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                       type: "integer",
                       exclusiveMinimum: 0,
                       maximum: 9007199254740991,
+                    },
+                    recentContextLimit: {
+                      type: "integer",
+                      minimum: 0,
+                      maximum: 9007199254740991,
+                    },
+                    recentContextMaxAgeHours: {
+                      type: "number",
+                      minimum: 0,
                     },
                   },
                   additionalProperties: false,
@@ -18185,6 +18202,21 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
                 description:
                   "Maximum number of prior group messages loaded as context per turn for group sessions. Use higher values for richer continuity, or lower values for faster and cheaper responses.",
               },
+              recentContextLimit: {
+                type: "integer",
+                minimum: 0,
+                maximum: 9007199254740991,
+                title: "Group Recent Context Limit",
+                description:
+                  "Maximum number of recent group messages retained across bot replies for rolling conversation context. Set 0 to disable.",
+              },
+              recentContextMaxAgeHours: {
+                type: "number",
+                minimum: 0,
+                title: "Group Recent Context Max Age",
+                description:
+                  "Maximum age in hours for rolling group conversation context retained across bot replies. Set 0 to disable age pruning.",
+              },
             },
             additionalProperties: false,
             title: "Group Chat Rules",
@@ -23609,6 +23641,11 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
       help: "Optional per-agent default for fast mode. Applies when no per-message or session fast-mode override is set.",
       tags: ["advanced"],
     },
+    "agents.list[].timeoutSeconds": {
+      label: "Agent Timeout (sec)",
+      help: "Optional per-agent response timeout in seconds. Overrides agents.defaults.timeoutSeconds for this agent when no per-run timeout override is set.",
+      tags: ["performance"],
+    },
     "agents.defaults": {
       label: "Agent Defaults",
       help: "Shared default settings inherited by agents unless overridden per entry in agents.list. Use defaults to enforce consistent baseline behavior and reduce duplicated per-agent configuration.",
@@ -27165,6 +27202,16 @@ export const GENERATED_BASE_CONFIG_SCHEMA: BaseConfigSchemaResponse = {
     "messages.groupChat.historyLimit": {
       label: "Group History Limit",
       help: "Maximum number of prior group messages loaded as context per turn for group sessions. Use higher values for richer continuity, or lower values for faster and cheaper responses.",
+      tags: ["performance"],
+    },
+    "messages.groupChat.recentContextLimit": {
+      label: "Group Recent Context Limit",
+      help: "Maximum number of recent group messages retained across bot replies for rolling conversation context. Set 0 to disable.",
+      tags: ["performance"],
+    },
+    "messages.groupChat.recentContextMaxAgeHours": {
+      label: "Group Recent Context Max Age",
+      help: "Maximum age in hours for rolling group conversation context retained across bot replies. Set 0 to disable age pruning.",
       tags: ["performance"],
     },
     "messages.queue": {

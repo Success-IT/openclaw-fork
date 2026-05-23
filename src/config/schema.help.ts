@@ -228,6 +228,8 @@ export const FIELD_HELP: Record<string, string> = {
     "Optional per-agent default reasoning visibility (on|off|stream). Applies when no per-message or session reasoning override is set.",
   "agents.list[].fastModeDefault":
     "Optional per-agent default for fast mode. Applies when no per-message or session fast-mode override is set.",
+  "agents.list[].timeoutSeconds":
+    "Optional per-agent response timeout in seconds. Overrides agents.defaults.timeoutSeconds for this agent when no per-run timeout override is set.",
   "agents.list[].runtime":
     "Optional runtime descriptor for this agent. Use embedded for default OpenClaw execution or acp for external ACP harness defaults.",
   "agents.list[].runtime.type":
@@ -1566,6 +1568,10 @@ export const FIELD_HELP: Record<string, string> = {
     "Safe case-insensitive regex patterns used to detect explicit mentions/trigger phrases in group chats. Use precise patterns to reduce false positives in high-volume channels; invalid or unsafe nested-repetition patterns are ignored.",
   "messages.groupChat.historyLimit":
     "Maximum number of prior group messages loaded as context per turn for group sessions. Use higher values for richer continuity, or lower values for faster and cheaper responses.",
+  "messages.groupChat.recentContextLimit":
+    "Maximum number of recent group messages retained across bot replies for rolling conversation context. Set 0 to disable.",
+  "messages.groupChat.recentContextMaxAgeHours":
+    "Maximum age in hours for rolling group conversation context retained across bot replies. Set 0 to disable age pruning.",
   "messages.queue":
     "Inbound message queue strategy used to buffer bursts before processing turns. Tune this for busy channels where sequential processing or batching behavior matters.",
   "messages.queue.mode":
