@@ -287,6 +287,7 @@ export async function processMessage(params: {
           history: trimRecentGroupContextEntries({
             entries: params.recentGroupContexts.get(params.groupHistoryKey) ?? [],
             config: params.recentGroupContextConfig,
+            now: params.msg.timestamp,
           }),
           mode: contextVisibilityMode,
           groupPolicy: inboundPolicy.groupPolicy,
