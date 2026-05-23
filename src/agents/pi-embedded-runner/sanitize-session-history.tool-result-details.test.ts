@@ -4,6 +4,7 @@ import { SessionManager } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import { makeAgentAssistantMessage } from "../test-helpers/agent-message-fixtures.js";
 import { sanitizeSessionHistory } from "./replay-history.js";
+import { truncateOversizedToolResultsInMessages } from "./tool-result-truncation.js";
 
 vi.mock("../../plugins/provider-runtime.js", () => ({
   resolveProviderRuntimePlugin: () => undefined,
@@ -59,6 +60,26 @@ describe("sanitizeSessionHistory toolResult details stripping", () => {
 
     const serialized = JSON.stringify(sanitized);
     expect(serialized).not.toContain("Ignore previous instructions");
+  });
+
+  it("redacts large inline base64 tool output before it bloats replay history", () => {
+    const inlineBase64 = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo0123456789+/".repeat(160);
+    const message = {
+      role: "toolResult",
+      toolCallId: "call_1",
+      toolName: "exec",
+      isError: false,
+      content: [{ type: "text", text: `file bytes:\n${inlineBase64}\ndone` }],
+      timestamp: 2,
+    } satisfies ToolResultMessage;
+
+    const result = truncateOversizedToolResultsInMessages([message], 128_000, 16_000);
+
+    expect(result.truncatedCount).toBe(1);
+    const serialized = JSON.stringify(result.messages);
+    expect(serialized).toContain("large inline base64 redacted");
+    expect(serialized).toContain("approxBytes");
+    expect(serialized).not.toContain(inlineBase64);
   });
 
   it("normalizes malformed assistant string content before replay sanitization", async () => {

@@ -523,34 +523,45 @@ export function buildAcpResult(params: {
   };
 }
 
-export function emitAcpLifecycleStart(params: { runId: string; startedAt: number }) {
+export function emitAcpLifecycleStart(params: {
+  runId: string;
+  sessionId?: string;
+  startedAt: number;
+}) {
   emitAgentEvent({
     runId: params.runId,
     stream: "lifecycle",
     data: {
       phase: "start",
+      ...(params.sessionId ? { sessionId: params.sessionId } : {}),
       startedAt: params.startedAt,
     },
   });
 }
 
-export function emitAcpLifecycleEnd(params: { runId: string }) {
+export function emitAcpLifecycleEnd(params: { runId: string; sessionId?: string }) {
   emitAgentEvent({
     runId: params.runId,
     stream: "lifecycle",
     data: {
       phase: "end",
+      ...(params.sessionId ? { sessionId: params.sessionId } : {}),
       endedAt: Date.now(),
     },
   });
 }
 
-export function emitAcpLifecycleError(params: { runId: string; message: string }) {
+export function emitAcpLifecycleError(params: {
+  runId: string;
+  sessionId?: string;
+  message: string;
+}) {
   emitAgentEvent({
     runId: params.runId,
     stream: "lifecycle",
     data: {
       phase: "error",
+      ...(params.sessionId ? { sessionId: params.sessionId } : {}),
       error: params.message,
       endedAt: Date.now(),
     },

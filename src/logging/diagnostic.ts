@@ -337,13 +337,14 @@ export function logToolLoopAction(
   params: SessionRef & {
     toolName: string;
     level: "warning" | "critical";
-    action: "warn" | "block";
+    action: "warn" | "block" | "recover";
     detector:
       | "generic_repeat"
       | "unknown_tool_repeat"
       | "known_poll_no_progress"
       | "global_circuit_breaker"
-      | "ping_pong";
+      | "ping_pong"
+      | "cron_wrapper_repeated_command";
     count: number;
     message: string;
     pairedToolName?: string;

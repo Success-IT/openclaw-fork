@@ -7,8 +7,18 @@ export type SessionState = {
   state: SessionStateValue;
   queueDepth: number;
   toolCallHistory?: ToolCallRecord[];
+  cronWrapperToolResultCache?: Map<string, ToolCallCachedResult>;
   toolLoopWarningBuckets?: Map<string, number>;
   commandPollCounts?: Map<string, { count: number; lastPollAt: number }>;
+};
+
+export type ToolCallCachedResult = {
+  toolName: string;
+  argsHash: string;
+  resultHash: string;
+  result: unknown;
+  count: number;
+  cachedAt: number;
 };
 
 export type ToolCallRecord = {

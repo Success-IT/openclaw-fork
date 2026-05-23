@@ -384,6 +384,8 @@ export const GroupChatSchema = z
   .object({
     mentionPatterns: z.array(z.string()).optional(),
     historyLimit: z.number().int().positive().optional(),
+    recentContextLimit: z.number().int().min(0).optional(),
+    recentContextMaxAgeHours: z.number().min(0).optional(),
   })
   .strict()
   .optional();

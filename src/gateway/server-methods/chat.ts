@@ -2144,6 +2144,7 @@ export const chatHandlers: GatewayRequestHandlers = {
     let offloadedRefs: OffloadedRef[] = [];
     const timeoutMs = resolveAgentTimeoutMs({
       cfg,
+      agentId,
       overrideMs: p.timeoutMs,
     });
     const now = Date.now();

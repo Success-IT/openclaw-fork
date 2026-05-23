@@ -11,7 +11,18 @@ export type LoopDetectorKind =
   | "unknown_tool_repeat"
   | "known_poll_no_progress"
   | "global_circuit_breaker"
-  | "ping_pong";
+  | "ping_pong"
+  | "cron_wrapper_repeated_command";
+
+export type CronWrapperRepeatRecoveryResult =
+  | { recovered: false }
+  | {
+      recovered: true;
+      count: number;
+      message: string;
+      result: unknown;
+      warningKey: string;
+    };
 
 export type LoopDetectionResult =
   | { stuck: false }
@@ -161,6 +172,17 @@ function isKnownPollToolCall(toolName: string, params: unknown): boolean {
   }
   const action = params.action;
   return action === "poll" || action === "log";
+}
+
+function isCronSessionKey(sessionKey?: string): boolean {
+  return /(?:^|:)cron:[^:]+(?:$|:run:)/u.test(sessionKey ?? "");
+}
+
+function isCronWrapperCommandToolCall(toolName: string, params: unknown): boolean {
+  if (toolName !== "exec" || !isPlainObject(params)) {
+    return false;
+  }
+  return typeof params.command === "string" && params.command.trim().length > 0;
 }
 
 function extractTextContent(result: unknown): string {
@@ -651,6 +673,80 @@ export function recordToolCallOutcome(
   if (state.toolCallHistory.length > resolvedConfig.historySize) {
     state.toolCallHistory.splice(0, state.toolCallHistory.length - resolvedConfig.historySize);
   }
+}
+
+export function rememberCronWrapperToolResult(
+  state: SessionState,
+  params: {
+    toolName: string;
+    toolParams: unknown;
+    result: unknown;
+    config?: ToolLoopDetectionConfig;
+  },
+): void {
+  if (
+    !isCronSessionKey(state.sessionKey) ||
+    !isCronWrapperCommandToolCall(params.toolName, params.toolParams)
+  ) {
+    return;
+  }
+  const resultHash = hashToolOutcome(
+    params.toolName,
+    params.toolParams,
+    params.result,
+    undefined,
+  ).resultHash;
+  if (!resultHash) {
+    return;
+  }
+  const argsHash = hashToolCall(params.toolName, params.toolParams);
+  if (!state.cronWrapperToolResultCache) {
+    state.cronWrapperToolResultCache = new Map();
+  }
+  const existing = state.cronWrapperToolResultCache.get(argsHash);
+  state.cronWrapperToolResultCache.set(argsHash, {
+    toolName: params.toolName,
+    argsHash,
+    resultHash,
+    result: existing?.resultHash === resultHash ? existing.result : params.result,
+    count: existing?.resultHash === resultHash ? existing.count : 1,
+    cachedAt: Date.now(),
+  });
+
+  const resolvedConfig = resolveLoopDetectionConfig(params.config);
+  while (state.cronWrapperToolResultCache.size > resolvedConfig.historySize) {
+    const oldest = state.cronWrapperToolResultCache.keys().next().value;
+    if (!oldest) {
+      break;
+    }
+    state.cronWrapperToolResultCache.delete(oldest);
+  }
+}
+
+export function detectCronWrapperRepeatedCommand(
+  state: SessionState,
+  toolName: string,
+  params: unknown,
+): CronWrapperRepeatRecoveryResult {
+  if (!isCronSessionKey(state.sessionKey) || !isCronWrapperCommandToolCall(toolName, params)) {
+    return { recovered: false };
+  }
+  const argsHash = hashToolCall(toolName, params);
+  const cached = state.cronWrapperToolResultCache?.get(argsHash);
+  if (!cached) {
+    return { recovered: false };
+  }
+  cached.count += 1;
+  cached.cachedAt = Date.now();
+  return {
+    recovered: true,
+    count: cached.count,
+    message:
+      `Recovered repeated cron wrapper command after a prior successful identical exec call. ` +
+      `Returning the first successful result instead of executing it again.`,
+    result: cached.result,
+    warningKey: `cron-wrapper:${toolName}:${argsHash}:${cached.resultHash}`,
+  };
 }
 
 /**

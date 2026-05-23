@@ -3,6 +3,7 @@
  */
 
 import crypto from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import { resolveStateDir } from "../config/paths.js";
 import { type SessionEntry, loadSessionStore, updateSessionStore } from "../config/sessions.js";
@@ -19,6 +20,13 @@ const log = createSubsystemLogger("main-session-restart-recovery");
 const DEFAULT_RECOVERY_DELAY_MS = 5_000;
 const MAX_RECOVERY_RETRIES = 3;
 const RETRY_BACKOFF_MULTIPLIER = 2;
+
+function resolveTranscriptPath(storePath: string, entry: SessionEntry): string {
+  return (
+    entry.sessionFile ??
+    path.join(path.dirname(path.resolve(storePath)), `${entry.sessionId}.jsonl`)
+  );
+}
 
 function shouldSkipMainRecovery(entry: SessionEntry, sessionKey: string): boolean {
   if (typeof entry.spawnDepth === "number" && entry.spawnDepth > 0) {
@@ -96,6 +104,43 @@ async function markSessionFailed(params: {
     { skipMaintenance: true },
   );
   log.warn(`marked interrupted main session failed: ${params.sessionKey} (${params.reason})`);
+}
+
+async function failMissingTranscriptRunningSessions(params: {
+  storePath: string;
+}): Promise<number> {
+  let failed = 0;
+  await updateSessionStore(
+    params.storePath,
+    (store) => {
+      for (const [sessionKey, entry] of Object.entries(store)) {
+        if (!entry || entry.status !== "running" || entry.abortedLastRun === true) {
+          continue;
+        }
+        if (shouldSkipMainRecovery(entry, sessionKey)) {
+          continue;
+        }
+        const transcriptPath = resolveTranscriptPath(params.storePath, entry);
+        if (fs.existsSync(transcriptPath)) {
+          continue;
+        }
+        const now = Date.now();
+        entry.status = "failed";
+        entry.abortedLastRun = true;
+        entry.endedAt = now;
+        entry.updatedAt = now;
+        store[sessionKey] = entry;
+        failed++;
+      }
+    },
+    { skipMaintenance: true },
+  );
+  if (failed > 0) {
+    log.warn(
+      `marked ${failed} stale running main session(s) failed because transcripts are missing`,
+    );
+  }
+  return failed;
 }
 
 async function resumeMainSession(params: {
@@ -183,6 +228,7 @@ async function recoverStore(params: {
   resumedSessionKeys: Set<string>;
 }): Promise<{ recovered: number; failed: number; skipped: number }> {
   const result = { recovered: 0, failed: 0, skipped: 0 };
+  result.failed += await failMissingTranscriptRunningSessions({ storePath: params.storePath });
   let store: Record<string, SessionEntry>;
   try {
     store = loadSessionStore(params.storePath);

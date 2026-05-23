@@ -373,6 +373,53 @@ describe("message tool agent routing", () => {
     });
     expect(mocks.runMessageAction).not.toHaveBeenCalled();
   });
+
+  it("passes timeoutSeconds through configured agent targets", async () => {
+    mocks.callGateway.mockImplementation(async (opts: unknown) => {
+      const request = opts as {
+        method?: string;
+        params?: Record<string, unknown>;
+        timeoutMs?: number;
+      };
+      if (request.method === "chat.history") {
+        return { messages: [] };
+      }
+      if (request.method === "agent") {
+        return { runId: "run-zach", status: "accepted" };
+      }
+      if (request.method === "agent.wait") {
+        expect(request.params?.timeoutMs).toBe(120_000);
+        return { runId: "run-zach", status: "timeout" };
+      }
+      return {};
+    });
+
+    const tool = createMessageTool({
+      agentSessionKey: "agent:main:whatsapp:laylah:direct:+6591837772",
+      currentChannelProvider: "whatsapp",
+      config: {
+        agents: { list: [{ id: "main" }, { id: "zach" }] },
+        tools: {
+          sessions: { visibility: "all" },
+          agentToAgent: { enabled: true, allow: ["main", "zach"] },
+        },
+      } as never,
+      runMessageAction: mocks.runMessageAction as never,
+    });
+
+    const result = await tool.execute("1", {
+      action: "send",
+      target: "zach",
+      message: "please handle this",
+      timeoutSeconds: 120,
+    });
+
+    expect(result.details).toMatchObject({
+      status: "timeout",
+      sessionKey: "agent:zach:main",
+    });
+    expect(mocks.runMessageAction).not.toHaveBeenCalled();
+  });
 });
 
 describe("message tool explicit target guard", () => {

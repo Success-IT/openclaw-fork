@@ -4,6 +4,10 @@ import type { TtsConfig } from "./types.tts.js";
 export type GroupChatConfig = {
   mentionPatterns?: string[];
   historyLimit?: number;
+  /** Rolling recent group messages retained across bot replies. Set 0 to disable. */
+  recentContextLimit?: number;
+  /** Maximum age for rolling recent group context. Set 0 to disable age pruning. */
+  recentContextMaxAgeHours?: number;
 };
 
 export type DmConfig = {

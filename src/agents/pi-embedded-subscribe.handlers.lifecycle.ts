@@ -27,12 +27,13 @@ export function handleAgentStart(ctx: EmbeddedPiSubscribeContext) {
     stream: "lifecycle",
     data: {
       phase: "start",
+      sessionId: ctx.params.sessionId,
       startedAt: Date.now(),
     },
   });
   void ctx.params.onAgentEvent?.({
     stream: "lifecycle",
-    data: { phase: "start" },
+    data: { phase: "start", sessionId: ctx.params.sessionId },
   });
 }
 
@@ -117,6 +118,7 @@ export function handleAgentEnd(ctx: EmbeddedPiSubscribeContext): void | Promise<
         stream: "lifecycle",
         data: {
           phase: "error",
+          sessionId: ctx.params.sessionId,
           error: lifecycleErrorText ?? "LLM request failed.",
           ...(livenessState ? { livenessState } : {}),
           ...(replayInvalid ? { replayInvalid } : {}),
@@ -127,6 +129,7 @@ export function handleAgentEnd(ctx: EmbeddedPiSubscribeContext): void | Promise<
         stream: "lifecycle",
         data: {
           phase: "error",
+          sessionId: ctx.params.sessionId,
           error: lifecycleErrorText ?? "LLM request failed.",
           ...(livenessState ? { livenessState } : {}),
           ...(replayInvalid ? { replayInvalid } : {}),
@@ -139,6 +142,7 @@ export function handleAgentEnd(ctx: EmbeddedPiSubscribeContext): void | Promise<
       stream: "lifecycle",
       data: {
         phase: "end",
+        sessionId: ctx.params.sessionId,
         ...(livenessState ? { livenessState } : {}),
         ...(replayInvalid ? { replayInvalid } : {}),
         endedAt: Date.now(),
@@ -148,6 +152,7 @@ export function handleAgentEnd(ctx: EmbeddedPiSubscribeContext): void | Promise<
       stream: "lifecycle",
       data: {
         phase: "end",
+        sessionId: ctx.params.sessionId,
         ...(livenessState ? { livenessState } : {}),
         ...(replayInvalid ? { replayInvalid } : {}),
       },

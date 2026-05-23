@@ -450,10 +450,15 @@ async function agentCommandInternal(
     if (acpResolution?.kind === "ready" && sessionKey) {
       const attemptExecutionRuntime = await loadAttemptExecutionRuntime();
       const startedAt = Date.now();
+      const lifecycleSessionId = sessionEntry?.sessionId;
       registerAgentRunContext(runId, {
         sessionKey,
       });
-      attemptExecutionRuntime.emitAcpLifecycleStart({ runId, startedAt });
+      attemptExecutionRuntime.emitAcpLifecycleStart({
+        runId,
+        sessionId: lifecycleSessionId,
+        startedAt,
+      });
 
       const visibleTextAccumulator = attemptExecutionRuntime.createAcpVisibleTextAccumulator();
       let stopReason: string | undefined;
@@ -513,12 +518,13 @@ async function agentCommandInternal(
         });
         attemptExecutionRuntime.emitAcpLifecycleError({
           runId,
+          sessionId: lifecycleSessionId,
           message: acpError.message,
         });
         throw acpError;
       }
 
-      attemptExecutionRuntime.emitAcpLifecycleEnd({ runId });
+      attemptExecutionRuntime.emitAcpLifecycleEnd({ runId, sessionId: lifecycleSessionId });
 
       const finalTextRaw = visibleTextAccumulator.finalizeRaw();
       const finalText = visibleTextAccumulator.finalize();

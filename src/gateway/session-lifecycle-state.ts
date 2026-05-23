@@ -8,6 +8,7 @@ type LifecyclePhase = "start" | "end" | "error";
 type LifecycleEventLike = Pick<AgentEventPayload, "ts"> & {
   data?: {
     phase?: unknown;
+    sessionId?: unknown;
     startedAt?: unknown;
     endedAt?: unknown;
     aborted?: unknown;
@@ -17,12 +18,12 @@ type LifecycleEventLike = Pick<AgentEventPayload, "ts"> & {
 
 type LifecycleSessionShape = Pick<
   GatewaySessionRow,
-  "updatedAt" | "status" | "startedAt" | "endedAt" | "runtimeMs" | "abortedLastRun"
+  "sessionId" | "updatedAt" | "status" | "startedAt" | "endedAt" | "runtimeMs" | "abortedLastRun"
 >;
 
 type PersistedLifecycleSessionShape = Pick<
   SessionEntry,
-  "updatedAt" | "status" | "startedAt" | "endedAt" | "runtimeMs" | "abortedLastRun"
+  "sessionId" | "updatedAt" | "status" | "startedAt" | "endedAt" | "runtimeMs" | "abortedLastRun"
 >;
 
 export type GatewaySessionLifecycleSnapshot = Partial<LifecycleSessionShape>;
@@ -34,6 +35,19 @@ function isFiniteTimestamp(value: unknown): value is number {
 function resolveLifecyclePhase(event: LifecycleEventLike): LifecyclePhase | null {
   const phase = typeof event.data?.phase === "string" ? event.data.phase : "";
   return phase === "start" || phase === "end" || phase === "error" ? phase : null;
+}
+
+function eventTargetsDifferentSession(params: {
+  session?: Partial<Pick<LifecycleSessionShape, "sessionId">> | null;
+  event: LifecycleEventLike;
+}): boolean {
+  const eventSessionId =
+    typeof params.event.data?.sessionId === "string" ? params.event.data.sessionId.trim() : "";
+  if (!eventSessionId) {
+    return false;
+  }
+  const currentSessionId = params.session?.sessionId?.trim();
+  return Boolean(currentSessionId && currentSessionId !== eventSessionId);
 }
 
 function resolveTerminalStatus(event: LifecycleEventLike): SessionRunStatus {
@@ -97,6 +111,9 @@ export function deriveGatewaySessionLifecycleSnapshot(params: {
   if (!phase) {
     return {};
   }
+  if (eventTargetsDifferentSession(params)) {
+    return {};
+  }
 
   const existing = params.session ?? undefined;
   if (phase === "start") {
@@ -154,6 +171,9 @@ export async function persistGatewaySessionLifecycleEvent(params: {
 
   const sessionEntry = loadSessionEntry(params.sessionKey);
   if (!sessionEntry.entry) {
+    return;
+  }
+  if (eventTargetsDifferentSession({ session: sessionEntry.entry, event: params.event })) {
     return;
   }
 

@@ -156,6 +156,13 @@ function buildSendSchema(options: { includePresentation: boolean; includeDeliver
     threadId: Type.Optional(Type.String()),
     asVoice: Type.Optional(Type.Boolean()),
     silent: Type.Optional(Type.Boolean()),
+    timeoutSeconds: Type.Optional(
+      Type.Number({
+        minimum: 0,
+        description:
+          "For configured agent targets only, how long to wait for the target agent reply before returning timeout. Use 0 for fire-and-forget.",
+      }),
+    ),
     quoteText: Type.Optional(
       Type.String({ description: "Quote text for Telegram reply_parameters" }),
     ),
@@ -811,9 +818,14 @@ export function createMessageTool(options?: MessageToolOptions): AnyAgentTool {
             agentChannel: normalizeMessageChannel(options?.currentChannelProvider),
             config: cfg,
           });
+          const timeoutSeconds =
+            typeof params.timeoutSeconds === "number" && Number.isFinite(params.timeoutSeconds)
+              ? Math.max(0, Math.floor(params.timeoutSeconds))
+              : undefined;
           return await sessionsSendTool.execute(_toolCallId, {
             sessionKey: agentSessionTarget,
             message: readStringParam(params, "message", { required: true }),
+            ...(timeoutSeconds !== undefined ? { timeoutSeconds } : {}),
           });
         }
       }

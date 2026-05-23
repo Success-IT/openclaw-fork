@@ -2,6 +2,8 @@ import { getDiagnosticSessionState } from "../logging/diagnostic-session-state.j
 import { logToolLoopAction } from "../logging/diagnostic.js";
 import {
   detectToolCallLoop,
+  detectCronWrapperRepeatedCommand,
+  rememberCronWrapperToolResult,
   recordToolCall,
   recordToolCallOutcome,
 } from "./tool-loop-detection.js";
@@ -9,7 +11,9 @@ import {
 export const beforeToolCallRuntime = {
   getDiagnosticSessionState,
   logToolLoopAction,
+  detectCronWrapperRepeatedCommand,
   detectToolCallLoop,
+  rememberCronWrapperToolResult,
   recordToolCall,
   recordToolCallOutcome,
 };

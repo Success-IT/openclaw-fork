@@ -61,6 +61,28 @@ describe("session lifecycle state", () => {
     });
   });
 
+  it("ignores late lifecycle events from a previous reset session id", () => {
+    expect(
+      derivePersistedSessionLifecyclePatch({
+        entry: {
+          sessionId: "new-session",
+          updatedAt: 1_000,
+          status: "done",
+        },
+        event: {
+          ts: 2_000,
+          data: {
+            phase: "start",
+            sessionId: "old-session",
+            startedAt: 1_900,
+          },
+        },
+      }),
+    ).toEqual({
+      updatedAt: undefined,
+    });
+  });
+
   it("maps aborted stop reasons to killed", () => {
     expect(
       derivePersistedSessionLifecyclePatch({

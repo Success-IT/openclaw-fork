@@ -120,6 +120,22 @@ describe("resolveAgentTimeoutMs", () => {
     expect(resolveAgentTimeoutMs({})).toBe(48 * 60 * 60 * 1000);
   });
 
+  it("uses per-agent timeout defaults when an agent id is provided", () => {
+    const cfg = {
+      agents: {
+        defaults: { timeoutSeconds: 300 },
+        list: [
+          { id: "main", timeoutSeconds: 600 },
+          { id: "support", timeoutSeconds: 45 },
+        ],
+      },
+    };
+
+    expect(resolveAgentTimeoutSeconds(cfg, "support")).toBe(45);
+    expect(resolveAgentTimeoutMs({ cfg, agentId: "support" })).toBe(45_000);
+    expect(resolveAgentTimeoutMs({ cfg, agentId: "unknown" })).toBe(300_000);
+  });
+
   it("uses a timer-safe sentinel for no-timeout overrides", () => {
     expect(resolveAgentTimeoutMs({ overrideSeconds: 0 })).toBe(2_147_000_000);
     expect(resolveAgentTimeoutMs({ overrideMs: 0 })).toBe(2_147_000_000);

@@ -1040,7 +1040,9 @@ describe("run-node script", () => {
         files: {
           [ROOT_SRC]: "export const value = 1;\n",
         },
-        buildPaths: [ROOT_SRC, ROOT_TSCONFIG, ROOT_PACKAGE, DIST_ENTRY, BUILD_STAMP],
+        oldPaths: [ROOT_TSCONFIG, ROOT_PACKAGE],
+        buildPaths: [DIST_ENTRY, BUILD_STAMP],
+        newPaths: [ROOT_SRC],
       });
 
       const requirement = resolveBuildRequirement(
@@ -1053,6 +1055,30 @@ describe("run-node script", () => {
       expect(requirement).toEqual({
         shouldBuild: true,
         reason: "dirty_watched_tree",
+      });
+    });
+  });
+
+  it("treats dirty watched source trees as current when the build stamp is newer", async () => {
+    await withTempDir({ prefix: "openclaw-run-node-" }, async (tmp) => {
+      await setupTrackedProject(tmp, {
+        files: {
+          [ROOT_SRC]: "export const value = 1;\n",
+        },
+        oldPaths: [ROOT_SRC, ROOT_TSCONFIG, ROOT_PACKAGE],
+        buildPaths: [DIST_ENTRY, BUILD_STAMP],
+      });
+
+      const requirement = resolveBuildRequirement(
+        createBuildRequirementDeps(tmp, {
+          gitHead: "abc123\n",
+          gitStatus: ` M ${ROOT_SRC}\n`,
+        }),
+      );
+
+      expect(requirement).toEqual({
+        shouldBuild: false,
+        reason: "clean",
       });
     });
   });

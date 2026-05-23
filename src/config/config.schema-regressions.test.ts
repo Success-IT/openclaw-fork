@@ -83,6 +83,24 @@ describe("config schema regressions", () => {
     expect(res.ok).toBe(true);
   });
 
+  it("accepts agents.list[].timeoutSeconds", () => {
+    const res = validateConfigObject({
+      agents: {
+        defaults: {
+          timeoutSeconds: 600,
+        },
+        list: [
+          {
+            id: "zach",
+            timeoutSeconds: 1800,
+          },
+        ],
+      },
+    });
+
+    expect(res.ok).toBe(true);
+  });
+
   it("accepts agents.defaults.startupContext overrides", () => {
     const res = validateConfigObject({
       agents: {

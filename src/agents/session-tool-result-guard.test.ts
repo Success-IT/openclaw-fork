@@ -181,6 +181,19 @@ describe("installSessionToolResultGuard", () => {
     expect(text).toMatch(/\[\.\.\. \d+ more characters truncated\]$/);
   });
 
+  it("redacts large inline base64 before persisting tool results", () => {
+    const sm = SessionManager.inMemory();
+    installSessionToolResultGuard(sm);
+    const inlineBase64 = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo0123456789+/".repeat(160);
+
+    appendToolResultText(sm, `file bytes:\n${inlineBase64}\ndone`);
+
+    const text = getToolResultText(getPersistedMessages(sm));
+    expect(text).toContain("large inline base64 redacted");
+    expect(text).toContain("approxBytes");
+    expect(text).not.toContain(inlineBase64);
+  });
+
   it("honors tiny configured tool-result caps truthfully", () => {
     const sm = SessionManager.inMemory();
     installSessionToolResultGuard(sm, {

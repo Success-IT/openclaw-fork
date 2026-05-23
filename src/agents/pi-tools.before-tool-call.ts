@@ -1,3 +1,4 @@
+import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { ToolLoopDetectionConfig } from "../config/types.tools.js";
 import {
   diagnosticErrorCategory,
@@ -153,7 +154,8 @@ async function recordLoopOutcome(args: {
     return;
   }
   try {
-    const { getDiagnosticSessionState, recordToolCallOutcome } = await loadBeforeToolCallRuntime();
+    const { getDiagnosticSessionState, rememberCronWrapperToolResult, recordToolCallOutcome } =
+      await loadBeforeToolCallRuntime();
     const sessionState = getDiagnosticSessionState({
       sessionKey: args.ctx.sessionKey,
       sessionId: args.ctx?.agentId,
@@ -166,8 +168,55 @@ async function recordLoopOutcome(args: {
       error: args.error,
       config: args.ctx.loopDetection,
     });
+    if (args.error === undefined && args.result !== undefined) {
+      rememberCronWrapperToolResult(sessionState, {
+        toolName: args.toolName,
+        toolParams: args.toolParams,
+        result: args.result,
+        config: args.ctx.loopDetection,
+      });
+    }
   } catch (err) {
     log.warn(`tool loop outcome tracking failed: tool=${args.toolName} error=${String(err)}`);
+  }
+}
+
+async function recoverCronWrapperRepeatedCommand(args: {
+  ctx?: HookContext;
+  toolName: string;
+  params: unknown;
+}): Promise<{ recovered: false } | { recovered: true; result: AgentToolResult<unknown> }> {
+  if (!args.ctx?.sessionKey) {
+    return { recovered: false };
+  }
+  try {
+    const { getDiagnosticSessionState, detectCronWrapperRepeatedCommand, logToolLoopAction } =
+      await loadBeforeToolCallRuntime();
+    const sessionState = getDiagnosticSessionState({
+      sessionKey: args.ctx.sessionKey,
+      sessionId: args.ctx?.agentId,
+    });
+    const recovery = detectCronWrapperRepeatedCommand(sessionState, args.toolName, args.params);
+    if (!recovery.recovered) {
+      return { recovered: false };
+    }
+    log.warn(`Cron wrapper repeated command recovered for ${args.toolName}: ${recovery.message}`);
+    logToolLoopAction({
+      sessionKey: args.ctx.sessionKey,
+      sessionId: args.ctx?.agentId,
+      toolName: args.toolName,
+      level: "warning",
+      action: "recover",
+      detector: "cron_wrapper_repeated_command",
+      count: recovery.count,
+      message: recovery.message,
+    });
+    return { recovered: true, result: recovery.result as AgentToolResult<unknown> };
+  } catch (err) {
+    log.warn(
+      `cron wrapper repeat recovery check failed: tool=${args.toolName} error=${String(err)}`,
+    );
+    return { recovered: false };
   }
 }
 
@@ -435,6 +484,14 @@ export function wrapToolWithBeforeToolCallHook(
   const wrappedTool: AnyAgentTool = {
     ...tool,
     execute: async (toolCallId, params, signal, onUpdate) => {
+      const repeatedCommandRecovery = await recoverCronWrapperRepeatedCommand({
+        ctx,
+        toolName: normalizeToolName(toolName || "tool"),
+        params,
+      });
+      if (repeatedCommandRecovery.recovered) {
+        return repeatedCommandRecovery.result;
+      }
       const outcome = await runBeforeToolCallHook({
         toolName,
         params,

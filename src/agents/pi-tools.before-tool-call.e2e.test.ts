@@ -207,6 +207,34 @@ describe("before_tool_call loop detection behavior", () => {
     }
   });
 
+  it("recovers repeated cron wrapper exec commands with the first successful result", async () => {
+    const firstResult = {
+      content: [{ type: "text", text: "HEARTBEAT_OK" }],
+      details: { status: "completed", exitCode: 0, aggregated: "HEARTBEAT_OK" },
+    };
+    const execute = vi.fn().mockResolvedValue(firstResult);
+    const tool = wrapToolWithBeforeToolCallHook({ name: "exec", execute } as any, {
+      agentId: "main",
+      sessionKey: "agent:main:cron:heartbeat:run:run-1",
+      loopDetection: { enabled: true },
+    });
+    const params = { command: "openclaw health heartbeat", workdir: "/tmp" };
+
+    await withToolLoopEvents(async (events) => {
+      await expect(tool.execute("exec-1", params, undefined, undefined)).resolves.toBe(firstResult);
+      await expect(tool.execute("exec-2", params, undefined, undefined)).resolves.toBe(firstResult);
+
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(events.at(-1)).toMatchObject({
+        type: "tool.loop",
+        detector: "cron_wrapper_repeated_command",
+        action: "recover",
+        count: 2,
+        toolName: "exec",
+      });
+    });
+  });
+
   it("does not block known poll loops when output progresses", async () => {
     const execute = vi.fn().mockImplementation(async (toolCallId: string) => {
       return {

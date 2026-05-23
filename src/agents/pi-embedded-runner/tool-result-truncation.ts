@@ -39,6 +39,7 @@ export const HARD_MAX_TOOL_RESULT_CHARS = DEFAULT_MAX_LIVE_TOOL_RESULT_CHARS;
  */
 const MIN_KEEP_CHARS = 2_000;
 const RECOVERY_MIN_KEEP_CHARS = 0;
+const LARGE_INLINE_BASE64_MIN_CHARS = 4_096;
 
 type ToolResultTruncationOptions = {
   suffix?: string | ((truncatedChars: number) => string);
@@ -185,6 +186,100 @@ export function truncateToolResultText(
   });
 }
 
+function estimateDecodedBase64Bytes(base64: string): number {
+  const normalized = base64.replace(/\s+/g, "");
+  if (!normalized) {
+    return 0;
+  }
+  const padding = normalized.endsWith("==") ? 2 : normalized.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((normalized.length * 3) / 4) - padding);
+}
+
+function looksLikeEncodedBinaryBase64(base64: string): boolean {
+  const compact = base64.replace(/\s+/g, "");
+  if (compact.length < LARGE_INLINE_BASE64_MIN_CHARS || compact.length % 4 !== 0) {
+    return false;
+  }
+  let classes = 0;
+  if (/[A-Z]/.test(compact)) {
+    classes++;
+  }
+  if (/[a-z]/.test(compact)) {
+    classes++;
+  }
+  if (/[0-9]/.test(compact)) {
+    classes++;
+  }
+  if (/[+/=]/.test(compact)) {
+    classes++;
+  }
+  return classes >= 3;
+}
+
+function redactLargeInlineBase64(text: string): { text: string; redactedCount: number } {
+  let redactedCount = 0;
+  const textWithRedactedDataUris = text.replace(
+    /data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]{4096,})/gi,
+    (_match, mime: string, body: string) => {
+      const compact = String(body).replace(/\s+/g, "");
+      if (!looksLikeEncodedBinaryBase64(compact)) {
+        return _match;
+      }
+      redactedCount++;
+      return `[large inline data URI redacted: mime=${mime} base64Chars=${compact.length} approxBytes=${estimateDecodedBase64Bytes(compact)}]`;
+    },
+  );
+
+  const redactedText = textWithRedactedDataUris.replace(
+    /(^|[^A-Za-z0-9+/=])([A-Za-z0-9+/=]{4096,})(?=$|[^A-Za-z0-9+/=])/g,
+    (match, prefix: string, body: string) => {
+      if (!looksLikeEncodedBinaryBase64(body)) {
+        return match;
+      }
+      redactedCount++;
+      return `${prefix}[large inline base64 redacted: base64Chars=${body.length} approxBytes=${estimateDecodedBase64Bytes(body)}]`;
+    },
+  );
+
+  return { text: redactedText, redactedCount };
+}
+
+export function redactLargeInlineMediaInToolResultMessage(msg: AgentMessage): {
+  message: AgentMessage;
+  redactedCount: number;
+} {
+  if ((msg as { role?: string }).role !== "toolResult") {
+    return { message: msg, redactedCount: 0 };
+  }
+  const content = (msg as { content?: unknown }).content;
+  if (!Array.isArray(content)) {
+    return { message: msg, redactedCount: 0 };
+  }
+
+  let redactedCount = 0;
+  let changed = false;
+  const newContent = content.map((block: unknown) => {
+    if (!block || typeof block !== "object" || (block as { type?: string }).type !== "text") {
+      return block;
+    }
+    const textBlock = block as TextContent;
+    if (typeof textBlock.text !== "string") {
+      return block;
+    }
+    const redacted = redactLargeInlineBase64(textBlock.text);
+    if (redacted.redactedCount === 0) {
+      return block;
+    }
+    redactedCount += redacted.redactedCount;
+    changed = true;
+    return Object.assign({}, textBlock, { text: redacted.text });
+  });
+
+  return changed
+    ? { message: { ...msg, content: newContent } as AgentMessage, redactedCount }
+    : { message: msg, redactedCount: 0 };
+}
+
 /**
  * Calculate the maximum allowed characters for a single tool result
  * based on the model's context window tokens.
@@ -252,6 +347,8 @@ export function truncateToolResultMessage(
   maxChars: number,
   options: ToolResultTruncationOptions = {},
 ): AgentMessage {
+  const redacted = redactLargeInlineMediaInToolResultMessage(msg);
+  msg = redacted.message;
   const suffixFactory = resolveSuffixFactory(options.suffix);
   const minKeepChars = resolveEffectiveMinKeepChars({
     maxChars,
@@ -321,12 +418,17 @@ export function truncateOversizedToolResultsInMessages(
     if ((msg as { role?: string }).role !== "toolResult") {
       return msg;
     }
-    const textLength = getToolResultTextLength(msg);
+    const redacted = redactLargeInlineMediaInToolResultMessage(msg);
+    const redactedMsg = redacted.message;
+    const textLength = getToolResultTextLength(redactedMsg);
     if (textLength <= maxChars) {
-      return msg;
+      if (redacted.redactedCount > 0) {
+        truncatedCount++;
+      }
+      return redactedMsg;
     }
     truncatedCount++;
-    return truncateToolResultMessage(msg, maxChars);
+    return truncateToolResultMessage(redactedMsg, maxChars);
   });
 
   return { messages: result, truncatedCount };
@@ -449,12 +551,16 @@ function buildOversizedToolResultReplacements(params: {
     if ((msg as { role?: string }).role !== "toolResult") {
       continue;
     }
-    if (getToolResultTextLength(msg) <= params.maxChars) {
+    const redacted = redactLargeInlineMediaInToolResultMessage(msg);
+    if (
+      redacted.redactedCount === 0 &&
+      getToolResultTextLength(redacted.message) <= params.maxChars
+    ) {
       continue;
     }
     replacements.push({
       entryId: entry.id,
-      message: truncateToolResultMessage(msg, params.maxChars, {
+      message: truncateToolResultMessage(redacted.message, params.maxChars, {
         minKeepChars,
       }),
     });
