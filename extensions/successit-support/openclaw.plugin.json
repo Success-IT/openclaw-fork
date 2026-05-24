@@ -1,0 +1,46 @@
+{
+  "id": "successit-support",
+  "contracts": {
+    "tools": [
+      "successit_support_onboard_group",
+      "successit_ticket_create",
+      "successit_notify_jensen"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "mappingPath": {
+        "type": "string"
+      },
+      "configPath": {
+        "type": "string"
+      },
+      "successCatalystCliDir": {
+        "type": "string"
+      },
+      "successGraphScript": {
+        "type": "string"
+      },
+      "priorityScript": {
+        "type": "string"
+      },
+      "jensenWhatsAppId": {
+        "type": "string"
+      },
+      "jensenSenderKeys": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "defaultSupportTeamSenders": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
