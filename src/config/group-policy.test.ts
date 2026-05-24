@@ -291,7 +291,7 @@ describe("resolveChannelGroupToolsPolicy", () => {
         groupId: "123",
       }),
     ).toEqual({
-      allow: ["web_search", "web_fetch", "browser", "calendar_availability"],
+      allow: ["web_search", "web_fetch", "browser"],
     });
   });
 

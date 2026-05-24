@@ -12,7 +12,7 @@ describe("resolveGroupTierToolPolicy", () => {
 
   it("returns limited allow list for trusted tier", () => {
     expect(resolveGroupTierToolPolicy("trusted")).toEqual({
-      allow: ["web_search", "web_fetch", "browser", "calendar_availability"],
+      allow: ["web_search", "web_fetch", "browser"],
     });
   });
 
@@ -25,6 +25,8 @@ describe("resolveGroupTierSystemPrompt", () => {
   it("returns hard constraint prompt for public tier", () => {
     expect(resolveGroupTierSystemPrompt("public")).toContain("HARD CONSTRAINT");
     expect(resolveGroupTierSystemPrompt("public")).toContain("CALENDAR PRIVACY");
+    expect(resolveGroupTierSystemPrompt("public")).toContain("CONTACT PRIVACY");
+    expect(resolveGroupTierSystemPrompt("public")).toContain("private owner-only lane");
   });
 
   it("treats undefined tier as public", () => {
@@ -36,5 +38,7 @@ describe("resolveGroupTierSystemPrompt", () => {
       "GROUP CONSTRAINT — TRUSTED/ENTERPRISE",
     );
     expect(resolveGroupTierSystemPrompt("trusted")).toContain("CALENDAR PRIVACY");
+    expect(resolveGroupTierSystemPrompt("trusted")).toContain("CONTACT PRIVACY");
+    expect(resolveGroupTierSystemPrompt("trusted")).toContain("private owner-only lane");
   });
 });
