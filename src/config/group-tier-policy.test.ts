@@ -24,6 +24,7 @@ describe("resolveGroupTierToolPolicy", () => {
 describe("resolveGroupTierSystemPrompt", () => {
   it("returns hard constraint prompt for public tier", () => {
     expect(resolveGroupTierSystemPrompt("public")).toContain("HARD CONSTRAINT");
+    expect(resolveGroupTierSystemPrompt("public")).toContain("CALENDAR PRIVACY");
   });
 
   it("treats undefined tier as public", () => {
@@ -34,5 +35,6 @@ describe("resolveGroupTierSystemPrompt", () => {
     expect(resolveGroupTierSystemPrompt("trusted")).toContain(
       "GROUP CONSTRAINT — TRUSTED/ENTERPRISE",
     );
+    expect(resolveGroupTierSystemPrompt("trusted")).toContain("CALENDAR PRIVACY");
   });
 });

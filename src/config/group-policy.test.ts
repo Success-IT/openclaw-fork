@@ -294,4 +294,25 @@ describe("resolveChannelGroupToolsPolicy", () => {
       allow: ["web_search", "web_fetch", "browser", "calendar_availability"],
     });
   });
+
+  it("treats unlisted groups as public deny-all when no explicit tools are configured", () => {
+    const cfg = {
+      channels: {
+        telegram: {
+          groupPolicy: "open",
+          groups: {
+            "*": { requireMention: true },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    expect(
+      resolveChannelGroupToolsPolicy({
+        cfg,
+        channel: "telegram",
+        groupId: "123",
+      }),
+    ).toEqual({ deny: ["*"] });
+  });
 });

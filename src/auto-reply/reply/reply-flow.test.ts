@@ -117,6 +117,61 @@ describe("createReplyDispatcher", () => {
     expect(deliver).not.toHaveBeenCalled();
   });
 
+  it("rewrites exact NO_REPLY final payloads for mentioned group sessions", async () => {
+    const deliver = vi.fn().mockResolvedValue(undefined);
+    const cfg: OpenClawConfig = {
+      agents: {
+        defaults: {
+          silentReply: {
+            direct: "disallow",
+            group: "allow",
+            internal: "allow",
+          },
+        },
+      },
+    };
+    const dispatcher = createReplyDispatcher({
+      deliver,
+      silentReplyContext: {
+        cfg,
+        sessionKey: "agent:main:whatsapp:group:123",
+        surface: "whatsapp",
+        conversationType: "group",
+        wasMentioned: true,
+      },
+    });
+
+    expect(dispatcher.sendFinalReply({ text: SILENT_REPLY_TOKEN })).toBe(true);
+
+    await dispatcher.waitForIdle();
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(deliver.mock.calls[0]?.[0]?.text).toBe("Here. What do you need?");
+  });
+
+  it("redacts calendar details from group replies before delivery", async () => {
+    const deliver = vi.fn().mockResolvedValue(undefined);
+    const dispatcher = createReplyDispatcher({
+      deliver,
+      silentReplyContext: {
+        sessionKey: "agent:main:whatsapp:group:123",
+        surface: "whatsapp",
+        conversationType: "group",
+      },
+    });
+
+    expect(
+      dispatcher.sendFinalReply({
+        text: "Monday's especially tight — he's at Office from 9:30am to 1pm, then lunch with Thomas.",
+      }),
+    ).toBe(true);
+
+    await dispatcher.waitForIdle();
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(deliver.mock.calls[0]?.[0]?.text).toBe(
+      "I can say Jensen's schedule is tight, but I shouldn't share calendar details in this group.",
+    );
+  });
+
   it("strips heartbeat tokens and applies responsePrefix", async () => {
     const deliver = vi.fn().mockResolvedValue(undefined);
     const onHeartbeatStrip = vi.fn();

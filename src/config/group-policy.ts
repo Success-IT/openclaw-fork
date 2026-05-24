@@ -453,8 +453,5 @@ export function resolveChannelGroupToolsPolicy(
     return defaultConfig.tools;
   }
   const tier = groupConfig?.tier ?? defaultConfig?.tier;
-  if (tier) {
-    return resolveGroupTierToolPolicy(tier);
-  }
-  return undefined;
+  return resolveGroupTierToolPolicy(tier);
 }

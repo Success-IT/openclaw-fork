@@ -38,7 +38,22 @@ export type ReplyDispatchBeforeDeliver = (
 
 const DEFAULT_HUMAN_DELAY_MIN_MS = 800;
 const DEFAULT_HUMAN_DELAY_MAX_MS = 2500;
+const GROUP_MENTION_SILENT_FALLBACK = "Here. What do you need?";
+const GROUP_CALENDAR_DETAIL_FALLBACK =
+  "I can say Jensen's schedule is tight, but I shouldn't share calendar details in this group.";
 const silentReplyLogger = createSubsystemLogger("silent-reply/dispatcher");
+
+const GROUP_CALENDAR_DETAIL_PATTERNS: RegExp[] = [
+  /\b(?:meeting|call|lunch|dinner|coffee|chat|discussion|sync|stand-?up|review|onboarding|pickup|drop off|service)\s+with\s+[A-Z][\p{L}'-]+/iu,
+  /\b(?:at|@)\s+[A-Z][\p{L}'-]+(?:\s+[A-Z0-9][\p{L}0-9'&.-]+){0,5}\b/u,
+  /\b(?:office|branch|motors|road|centre|center|teams meeting)\b/i,
+  /\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\s*(?:-|–|—|to)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/i,
+  /\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)'?s?\s+(?:especially\s+)?(?:tight|packed)\b/i,
+];
+
+function containsGroupCalendarDetail(text: string): boolean {
+  return GROUP_CALENDAR_DETAIL_PATTERNS.some((pattern) => pattern.test(text));
+}
 
 /** Generate a random delay within the configured range. */
 function getHumanDelay(config: HumanDelayConfig | undefined): number {
@@ -63,6 +78,7 @@ export type ReplyDispatcherOptions = {
     sessionKey?: string;
     surface?: string;
     conversationType?: SilentReplyConversationType;
+    wasMentioned?: boolean;
   };
   responsePrefix?: string;
   transformReplyPayload?: (payload: ReplyPayload) => ReplyPayload | null;
@@ -124,6 +140,26 @@ function normalizeReplyPayloadInternal(
   });
 }
 
+function applyGroupReplySafetyFilters(
+  payload: ReplyPayload,
+  context?: ReplyDispatcherOptions["silentReplyContext"],
+): ReplyPayload {
+  if (context?.conversationType !== "group" || !payload.text) {
+    return payload;
+  }
+  if (!containsGroupCalendarDetail(payload.text)) {
+    return payload;
+  }
+  silentReplyLogger.debug("redacting calendar detail from group reply before delivery", {
+    hasSessionKey: Boolean(context.sessionKey),
+    surface: context.surface,
+  });
+  return {
+    ...payload,
+    text: GROUP_CALENDAR_DETAIL_FALLBACK,
+  };
+}
+
 function resolveSilentFinalPayload(params: {
   kind: ReplyDispatchKind;
   payload: ReplyPayload;
@@ -146,6 +182,16 @@ function resolveSilentFinalPayload(params: {
     conversationType: context.conversationType,
   });
   if (resolvedSettings.policy === "allow") {
+    if (context.conversationType === "group" && context.wasMentioned) {
+      silentReplyLogger.debug("rewriting exact NO_REPLY group mention before delivery", {
+        hasSessionKey: Boolean(context.sessionKey),
+        surface: context.surface,
+      });
+      return {
+        ...params.payload,
+        text: GROUP_MENTION_SILENT_FALLBACK,
+      };
+    }
     return undefined;
   }
   if (resolvedSettings.rewrite) {
@@ -215,7 +261,7 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
       payload,
       silentReplyContext: options.silentReplyContext,
     });
-    const normalized =
+    const normalizedRaw =
       silentFinalPayload ??
       normalizeReplyPayloadInternal(payload, {
         responsePrefix: options.responsePrefix,
@@ -225,6 +271,9 @@ export function createReplyDispatcher(options: ReplyDispatcherOptions): ReplyDis
         onHeartbeatStrip: options.onHeartbeatStrip,
         onSkip: (reason) => options.onSkip?.(payload, { kind, reason }),
       });
+    const normalized = normalizedRaw
+      ? applyGroupReplySafetyFilters(normalizedRaw, options.silentReplyContext)
+      : null;
     if (!normalized) {
       if (kind === "final" && originalWasExactSilent) {
         silentReplyLogger.debug("exact NO_REPLY final payload was skipped before delivery", {

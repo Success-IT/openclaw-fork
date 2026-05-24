@@ -47,6 +47,7 @@ function resolveDispatcherSilentReplyContext(
     sessionKey: policySessionKey,
     surface: finalized.Surface ?? finalized.Provider,
     conversationType,
+    wasMentioned: finalized.WasMentioned === true,
   };
 }
 
