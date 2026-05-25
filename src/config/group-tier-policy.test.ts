@@ -12,7 +12,7 @@ describe("resolveGroupTierToolPolicy", () => {
 
   it("returns limited allow list for trusted tier", () => {
     expect(resolveGroupTierToolPolicy("trusted")).toEqual({
-      allow: ["web_search", "web_fetch", "browser"],
+      allow: ["web_search", "web_fetch"],
     });
   });
 

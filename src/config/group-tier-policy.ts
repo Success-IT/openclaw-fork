@@ -15,7 +15,7 @@ export function resolveGroupTierToolPolicy(
       return { deny: ["*"] };
     case "trusted":
     case "enterprise":
-      return { allow: ["web_search", "web_fetch", "browser"] };
+      return { allow: ["web_search", "web_fetch"] };
   }
   return undefined;
 }
