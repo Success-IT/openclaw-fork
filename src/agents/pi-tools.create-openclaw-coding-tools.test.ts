@@ -110,6 +110,20 @@ describe("createOpenClawCodingTools", () => {
     }
   });
 
+  it("keeps runtime toolsAllow available through restrictive profiles", () => {
+    const tools = createOpenClawCodingTools({
+      config: {
+        tools: {
+          profile: "minimal",
+        },
+      },
+      toolsAllow: ["web_fetch"],
+    });
+
+    expect(tools.some((tool) => tool.name === "web_fetch")).toBe(true);
+    expect(tools.some((tool) => tool.name === "web_search")).toBe(false);
+  });
+
   it("enforces apply_patch availability and canonical names across model/provider constraints", () => {
     const defaultTools = createOpenClawCodingTools({ config: testConfig, senderIsOwner: true });
     expect(defaultTools.some((tool) => tool.name === "exec")).toBe(true);

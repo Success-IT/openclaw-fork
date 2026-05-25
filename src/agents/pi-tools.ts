@@ -342,6 +342,8 @@ export function createOpenClawCodingTools(options?: {
   senderIsOwner?: boolean;
   /** Callback invoked when sessions_yield tool is called. */
   onYield?: (message: string) => Promise<void> | void;
+  /** Runtime-scoped allowlist applied after tool construction. */
+  toolsAllow?: string[];
 }): AnyAgentTool[] {
   const execToolName = "exec";
   const sandbox = options?.sandbox?.enabled ? options.sandbox : undefined;
@@ -388,7 +390,10 @@ export function createOpenClawCodingTools(options?: {
   const profilePolicy = resolveToolProfilePolicy(profile);
   const providerProfilePolicy = resolveToolProfilePolicy(providerProfile);
 
-  const runtimeProfileAlsoAllow = options?.forceMessageTool ? ["message"] : [];
+  const runtimeProfileAlsoAllow = [
+    ...(options?.forceMessageTool ? ["message"] : []),
+    ...(options?.toolsAllow ?? []),
+  ];
   const profilePolicyWithAlsoAllow = mergeAlsoAllowPolicy(profilePolicy, [
     ...(profileAlsoAllow ?? []),
     ...runtimeProfileAlsoAllow,
@@ -606,6 +611,7 @@ export function createOpenClawCodingTools(options?: {
       sandboxed: !!sandbox,
       config: options?.config,
       pluginToolAllowlist: collectExplicitAllowlist([
+        { allow: options?.toolsAllow },
         profilePolicy,
         providerProfilePolicy,
         globalPolicy,

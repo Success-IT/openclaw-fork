@@ -730,6 +730,7 @@ export async function runEmbeddedAttempt(
               runAbortController.abort("sessions_yield");
               abortSessionForYield?.();
             },
+            toolsAllow: params.toolsAllow,
           });
           return applyEmbeddedAttemptToolsAllow(allTools, params.toolsAllow);
         })();
@@ -931,7 +932,7 @@ export async function runEmbeddedAttempt(
     });
     const emptyExplicitToolAllowlistError = buildEmptyExplicitToolAllowlistError({
       sources: explicitToolAllowlistSources,
-      callableToolNames: effectiveTools.map((tool) => tool.name),
+      callableToolNames: Array.from(allowedToolNames),
       toolsEnabled,
       disableTools: params.disableTools,
     });
