@@ -36,6 +36,10 @@ export function resolveLlmIdleTimeoutMs(params?: {
     return clampTimeoutMs(raw * 1000);
   }
 
+  if (params?.trigger === "cron") {
+    return 0;
+  }
+
   const runTimeoutMs = params?.runTimeoutMs;
   if (typeof runTimeoutMs === "number" && Number.isFinite(runTimeoutMs) && runTimeoutMs > 0) {
     if (runTimeoutMs >= MAX_SAFE_TIMEOUT_MS) {
@@ -51,10 +55,6 @@ export function resolveLlmIdleTimeoutMs(params?: {
     agentTimeoutSeconds > 0
   ) {
     return clampImplicitTimeoutMs(agentTimeoutSeconds * 1000);
-  }
-
-  if (params?.trigger === "cron") {
-    return 0;
   }
 
   return DEFAULT_LLM_IDLE_TIMEOUT_MS;
