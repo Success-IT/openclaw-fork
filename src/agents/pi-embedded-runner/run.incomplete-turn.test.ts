@@ -252,6 +252,30 @@ describe("runEmbeddedPiAgent incomplete-turn safety", () => {
     expect(retryInstruction).toContain("Do not restate the plan");
   });
 
+  it("retries child-completion continuations that still promise future work", () => {
+    const retryInstruction = resolvePlanningOnlyRetryInstruction({
+      provider: "openai-codex",
+      modelId: "gpt-5.5",
+      executionContract: "strict-agentic",
+      prompt: [
+        "[Internal task completion event]",
+        "task: EXP-frontend-PR589-routing",
+        "status: completed successfully",
+        "Result: investigation text without PR URL or blocker",
+        "Action: A completed subagent task is ready for user delivery. Convert the result above into your normal assistant voice and send that user-facing update now.",
+      ].join("\n"),
+      aborted: false,
+      timedOut: false,
+      attempt: makeAttemptResult({
+        assistantTexts: [
+          "I found the incomplete part: PR #589 changed PU routing to `issueOrder`, but left the fragment empty. I’m continuing from here to apply the `#U` fix and finish the PR.",
+        ],
+      }),
+    });
+
+    expect(retryInstruction).toContain("Do not restate the plan");
+  });
+
   it("retries false tool-unavailable blockers when tools are registered", () => {
     const retryInstruction = resolveToolUnavailableFalseBlockerRetryInstruction({
       provider: "openai",

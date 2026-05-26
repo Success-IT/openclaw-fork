@@ -79,7 +79,9 @@ export function isIncompleteTerminalAssistantTurn(params: {
 }
 
 const PLANNING_ONLY_PROMISE_RE =
-  /\b(?:i(?:'ll| will)|let me|i(?:'m| am)\s+going to|first[, ]+i(?:'ll| will)|next[, ]+i(?:'ll| will)|i can do that)\b/i;
+  /\b(?:i(?:['’]ll| will)|let me|i(?:['’]m| am)\s+(?:going to|continuing|proceeding)|first[, ]+i(?:['’]ll| will)|next[, ]+i(?:['’]ll| will)|i can do that)\b/i;
+const PLANNING_ONLY_CONTINUATION_PROMISE_RE =
+  /\b(?:i(?:['’]m| am)\s+(?:continuing|proceeding|working)\b|i(?:['’]ll| will)\s+(?:continue|finish|apply|complete|package|create|push|open|run|verify)\b|(?:continuing|proceeding|applying|finishing)\s+(?:from here|now|next|to)\b)/i;
 const PLANNING_ONLY_COMPLETION_RE =
   /\b(?:done|finished|implemented|updated|fixed|changed|ran|verified|found|here(?:'s| is) what|blocked by|the blocker is)\b/i;
 const PLANNING_ONLY_HEADING_RE = /^(?:plan|steps?|next steps?)\s*:/i;
@@ -171,9 +173,9 @@ const ACK_EXECUTION_NORMALIZED_SET = new Set([
   "계속해",
 ]);
 const ACTIONABLE_PROMPT_DIRECTIVE_RE =
-  /^\s*(?:please\s+)?(?:check|look(?:\s+into|\s+at)?|read|write|edit|update|fix|investigate|debug|run|search|find|implement|add|remove|refactor|explain|summari(?:s|z)e|analy(?:s|z)e|review|tell|show|make|restart|deploy|prepare)\b/i;
+  /^\s*(?:please\s+)?(?:check|look(?:\s+into|\s+at)?|read|write|edit|update|fix|investigate|debug|run|search|find|implement|add|remove|refactor|explain|summari(?:s|z)e|analy(?:s|z)e|review|tell|show|make|restart|deploy|prepare|convert|send|continue|complete|process)\b/i;
 const ACTIONABLE_PROMPT_REQUEST_RE =
-  /\b(?:can|could|would|will)\s+you\b|\b(?:please|pls)\b|\b(?:help|explain|summari(?:s|z)e|analy(?:s|z)e|review|investigate|debug|fix|check|look(?:\s+into|\s+at)?|read|write|edit|update|run|search|find|implement|add|remove|refactor|show|tell me|walk me through)\b/i;
+  /\b(?:can|could|would|will)\s+you\b|\b(?:please|pls)\b|\b(?:help|explain|summari(?:s|z)e|analy(?:s|z)e|review|investigate|debug|fix|check|look(?:\s+into|\s+at)?|read|write|edit|update|run|search|find|implement|add|remove|refactor|show|tell me|walk me through|convert|send|continue|complete|process)\b/i;
 
 export const PLANNING_ONLY_RETRY_INSTRUCTION =
   "The previous assistant turn only described the plan. Do not restate the plan. Act now: take the first concrete tool action you can. If a real blocker prevents action, reply with the exact blocker in one sentence.";
@@ -674,17 +676,23 @@ export function resolvePlanningOnlyRetryInstruction(params: {
     return null;
   }
   const hasStructuredPlanningFormat = hasStructuredPlanningOnlyFormat(text);
-  if (!PLANNING_ONLY_PROMISE_RE.test(text) && !hasStructuredPlanningFormat) {
+  const hasContinuationPromise = PLANNING_ONLY_CONTINUATION_PROMISE_RE.test(text);
+  if (
+    !PLANNING_ONLY_PROMISE_RE.test(text) &&
+    !hasContinuationPromise &&
+    !hasStructuredPlanningFormat
+  ) {
     return null;
   }
   if (
     !hasStructuredPlanningFormat &&
     !singleActionNarrative &&
+    !hasContinuationPromise &&
     !PLANNING_ONLY_ACTION_VERB_RE.test(text)
   ) {
     return null;
   }
-  if (PLANNING_ONLY_COMPLETION_RE.test(text)) {
+  if (PLANNING_ONLY_COMPLETION_RE.test(text) && !hasContinuationPromise) {
     return null;
   }
   return PLANNING_ONLY_RETRY_INSTRUCTION;

@@ -625,6 +625,7 @@ describe("subagent announce formatting", () => {
       sourceTool: "subagent_announce",
     });
     expect(msg).toContain("final answer: 2");
+    expect(msg).toContain("If the child result is incomplete for the original user request");
     expect(msg).not.toContain("✅ Subagent");
   });
 
