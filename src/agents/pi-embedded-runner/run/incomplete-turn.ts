@@ -51,6 +51,21 @@ type PlanningOnlyAttempt = Pick<
   | "toolMetas"
 >;
 
+type ToolUnavailableAttempt = Pick<
+  EmbeddedRunAttemptResult,
+  | "assistantTexts"
+  | "clientToolCall"
+  | "yieldDetected"
+  | "didSendDeterministicApprovalPrompt"
+  | "didSendViaMessagingTool"
+  | "lastToolError"
+  | "lastAssistant"
+  | "itemLifecycle"
+  | "replayMetadata"
+  | "toolMetas"
+  | "systemPromptReport"
+>;
+
 type RunLivenessAttempt = Pick<
   EmbeddedRunAttemptResult,
   "lastAssistant" | "promptErrorSource" | "replayMetadata" | "timedOutDuringCompaction"
@@ -86,6 +101,16 @@ const SINGLE_ACTION_RETRY_SAFE_TOOL_NAMES = new Set([
   "glob",
   "ls",
 ]);
+const TOOL_UNAVAILABLE_FALSE_BLOCKER_RE =
+  /\b(?:tool execution is currently unavailable|workspace tools? (?:are )?(?:currently )?unavailable|(?:do not|don['’]t|does not|doesn['’]t) (?:have|see) (?:access to )?(?:the )?(?:required )?tools?|could not run (?:the requested )?(?:harmless )?(?:workspace )?check|couldn['’]t run (?:the requested )?(?:harmless )?(?:workspace )?check)\b/i;
+const TOOL_UNAVAILABLE_RETRYABLE_TOOL_NAMES = new Set([
+  "exec",
+  "process",
+  "read",
+  "memory_search",
+  "sessions_list",
+  "session_status",
+]);
 const GEMINI_INCOMPLETE_TURN_PROVIDER_IDS = new Set([
   "google",
   "google-vertex",
@@ -99,6 +124,11 @@ const STRICT_AGENTIC_PLANNING_ONLY_RETRY_LIMIT = 2;
 // surfacing the existing incomplete-turn error path.
 export const DEFAULT_REASONING_ONLY_RETRY_LIMIT = 2;
 export const DEFAULT_EMPTY_RESPONSE_RETRY_LIMIT = 1;
+export const DEFAULT_TOOL_UNAVAILABLE_FALSE_BLOCKER_RETRY_LIMIT = 2;
+export const TOOL_UNAVAILABLE_FALSE_BLOCKER_RETRY_INSTRUCTION =
+  "Your previous answer claimed workspace tools were unavailable, but this run has registered tools. Do not claim a tool blocker from memory or inference. Call one harmless registered tool now (prefer exec with pwd when exec is available). Only report blocked if that actual tool call fails, and include the exact tool error.";
+export const TOOL_UNAVAILABLE_FALSE_BLOCKER_BLOCKED_TEXT =
+  "⚠️ Agent stopped after repeatedly claiming workspace tools were unavailable without attempting a registered tool. Start a new run after checking the tool registry for this session.";
 const ACK_EXECUTION_NORMALIZED_SET = new Set([
   "ok",
   "okay",
@@ -658,4 +688,63 @@ export function resolvePlanningOnlyRetryInstruction(params: {
     return null;
   }
   return PLANNING_ONLY_RETRY_INSTRUCTION;
+}
+
+function listAvailableToolNames(attempt: ToolUnavailableAttempt): string[] {
+  return (
+    attempt.systemPromptReport?.tools.entries
+      .map((entry) => entry.name?.trim())
+      .filter((name): name is string => Boolean(name)) ?? []
+  );
+}
+
+function hasRetryableRegisteredTool(attempt: ToolUnavailableAttempt): boolean {
+  return listAvailableToolNames(attempt).some((name) =>
+    TOOL_UNAVAILABLE_RETRYABLE_TOOL_NAMES.has(normalizeLowercaseStringOrEmpty(name)),
+  );
+}
+
+export function resolveToolUnavailableFalseBlockerRetryInstruction(params: {
+  provider?: string;
+  modelId?: string;
+  executionContract?: string;
+  prompt?: string;
+  aborted: boolean;
+  timedOut: boolean;
+  attempt: ToolUnavailableAttempt;
+}): string | null {
+  if (
+    !shouldApplyPlanningOnlyRetryGuard({
+      provider: params.provider,
+      modelId: params.modelId,
+      executionContract: params.executionContract,
+    }) ||
+    (typeof params.prompt === "string" && !isLikelyActionableUserPrompt(params.prompt)) ||
+    params.aborted ||
+    params.timedOut ||
+    params.attempt.clientToolCall ||
+    params.attempt.yieldDetected ||
+    params.attempt.didSendDeterministicApprovalPrompt ||
+    params.attempt.didSendViaMessagingTool ||
+    params.attempt.lastToolError ||
+    params.attempt.toolMetas.length > 0 ||
+    params.attempt.itemLifecycle.startedCount > 0 ||
+    params.attempt.replayMetadata.hadPotentialSideEffects ||
+    !hasRetryableRegisteredTool(params.attempt)
+  ) {
+    return null;
+  }
+
+  const stopReason = params.attempt.lastAssistant?.stopReason;
+  if (stopReason && stopReason !== "stop") {
+    return null;
+  }
+
+  const text = params.attempt.assistantTexts.join("\n\n").trim();
+  if (!text || text.length > PLANNING_ONLY_MAX_VISIBLE_TEXT || text.includes("```")) {
+    return null;
+  }
+  return TOOL_UNAVAILABLE_FALSE_BLOCKER_RE.test(text)
+    ? TOOL_UNAVAILABLE_FALSE_BLOCKER_RETRY_INSTRUCTION
+    : null;
 }

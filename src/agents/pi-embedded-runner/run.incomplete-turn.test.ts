@@ -15,6 +15,7 @@ import {
   buildAttemptReplayMetadata,
   DEFAULT_EMPTY_RESPONSE_RETRY_LIMIT,
   DEFAULT_REASONING_ONLY_RETRY_LIMIT,
+  DEFAULT_TOOL_UNAVAILABLE_FALSE_BLOCKER_RETRY_LIMIT,
   EMPTY_RESPONSE_RETRY_INSTRUCTION,
   extractPlanningOnlyPlanDetails,
   hasCommittedUserVisibleToolDelivery,
@@ -25,9 +26,11 @@ import {
   resolveEmptyResponseRetryInstruction,
   resolvePlanningOnlyRetryLimit,
   resolvePlanningOnlyRetryInstruction,
+  resolveToolUnavailableFalseBlockerRetryInstruction,
   resolveIncompleteTurnPayloadText,
   resolveReasoningOnlyRetryInstruction,
   STRICT_AGENTIC_BLOCKED_TEXT,
+  TOOL_UNAVAILABLE_FALSE_BLOCKER_BLOCKED_TEXT,
   resolveReplayInvalidFlag,
   resolveRunLivenessState,
 } from "./run/incomplete-turn.js";
@@ -247,6 +250,60 @@ describe("runEmbeddedPiAgent incomplete-turn safety", () => {
     });
 
     expect(retryInstruction).toContain("Do not restate the plan");
+  });
+
+  it("retries false tool-unavailable blockers when tools are registered", () => {
+    const retryInstruction = resolveToolUnavailableFalseBlockerRetryInstruction({
+      provider: "openai",
+      modelId: "gpt-5.4",
+      executionContract: "strict-agentic",
+      prompt: "Please inspect the code, make the change, and run the checks.",
+      aborted: false,
+      timedOut: false,
+      attempt: makeAttemptResult({
+        assistantTexts: [
+          "exact blocker with the failed command/tool error: tool execution is currently unavailable in this session, so I could not run pwd.",
+        ],
+        systemPromptReport: {
+          source: "run",
+          generatedAt: Date.now(),
+          systemPrompt: { chars: 0, projectContextChars: 0, nonProjectContextChars: 0 },
+          injectedWorkspaceFiles: [],
+          skills: { promptChars: 0, entries: [] },
+          tools: {
+            listChars: 0,
+            schemaChars: 0,
+            entries: [{ name: "exec", summaryChars: 0, schemaChars: 0, propertiesCount: 1 }],
+          },
+        },
+      }),
+    });
+
+    expect(retryInstruction).toContain("Call one harmless registered tool now");
+  });
+
+  it("does not retry tool-unavailable blockers when no retryable tool is registered", () => {
+    const retryInstruction = resolveToolUnavailableFalseBlockerRetryInstruction({
+      provider: "openai",
+      modelId: "gpt-5.4",
+      executionContract: "strict-agentic",
+      prompt: "Please inspect the code, make the change, and run the checks.",
+      aborted: false,
+      timedOut: false,
+      attempt: makeAttemptResult({
+        assistantTexts: ["tool execution is currently unavailable in this session"],
+        systemPromptReport: {
+          source: "run",
+          generatedAt: Date.now(),
+          systemPrompt: { chars: 0, projectContextChars: 0, nonProjectContextChars: 0 },
+          injectedWorkspaceFiles: [],
+          skills: { promptChars: 0, entries: [] },
+          tools: { listChars: 0, schemaChars: 0, entries: [] },
+        },
+      }),
+    });
+
+    expect(retryInstruction).toBeNull();
   });
 
   it("retries reasoning-only GPT turns with a visible-answer continuation instruction", async () => {
@@ -621,8 +678,10 @@ describe("runEmbeddedPiAgent incomplete-turn safety", () => {
   it("allows one retry by default and two retries for strict-agentic runs", () => {
     expect(resolvePlanningOnlyRetryLimit("default")).toBe(1);
     expect(resolvePlanningOnlyRetryLimit("strict-agentic")).toBe(2);
+    expect(DEFAULT_TOOL_UNAVAILABLE_FALSE_BLOCKER_RETRY_LIMIT).toBe(2);
     expect(STRICT_AGENTIC_BLOCKED_TEXT).toContain("plan-only turns");
     expect(STRICT_AGENTIC_BLOCKED_TEXT).toContain("advanced the task");
+    expect(TOOL_UNAVAILABLE_FALSE_BLOCKER_BLOCKED_TEXT).toContain("workspace tools");
   });
 
   it("detects short execution approval prompts", () => {

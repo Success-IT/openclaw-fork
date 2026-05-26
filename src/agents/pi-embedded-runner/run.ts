@@ -110,6 +110,7 @@ import {
 import {
   DEFAULT_EMPTY_RESPONSE_RETRY_LIMIT,
   DEFAULT_REASONING_ONLY_RETRY_LIMIT,
+  DEFAULT_TOOL_UNAVAILABLE_FALSE_BLOCKER_RETRY_LIMIT,
   resolveAckExecutionFastPathInstruction,
   extractPlanningOnlyPlanDetails,
   resolveEmptyResponseRetryInstruction,
@@ -117,7 +118,9 @@ import {
   resolvePlanningOnlyRetryLimit,
   resolvePlanningOnlyRetryInstruction,
   resolveReasoningOnlyRetryInstruction,
+  resolveToolUnavailableFalseBlockerRetryInstruction,
   STRICT_AGENTIC_BLOCKED_TEXT,
+  TOOL_UNAVAILABLE_FALSE_BLOCKER_BLOCKED_TEXT,
   resolveReplayInvalidFlag,
   resolveRunLivenessState,
 } from "./run/incomplete-turn.js";
@@ -584,6 +587,8 @@ export async function runEmbeddedPiAgent(
       const maxPlanningOnlyRetryAttempts = resolvePlanningOnlyRetryLimit(executionContract);
       const maxReasoningOnlyRetryAttempts = DEFAULT_REASONING_ONLY_RETRY_LIMIT;
       const maxEmptyResponseRetryAttempts = DEFAULT_EMPTY_RESPONSE_RETRY_LIMIT;
+      const maxToolUnavailableFalseBlockerRetryAttempts =
+        DEFAULT_TOOL_UNAVAILABLE_FALSE_BLOCKER_RETRY_LIMIT;
 
       const MAX_TIMEOUT_COMPACTION_ATTEMPTS = 2;
       const MAX_OVERFLOW_COMPACTION_ATTEMPTS = 3;
@@ -601,11 +606,13 @@ export async function runEmbeddedPiAgent(
       let planningOnlyRetryAttempts = 0;
       let reasoningOnlyRetryAttempts = 0;
       let emptyResponseRetryAttempts = 0;
+      let toolUnavailableFalseBlockerRetryAttempts = 0;
       let sameModelIdleTimeoutRetries = 0;
       let lastRetryFailoverReason: FailoverReason | null = null;
       let planningOnlyRetryInstruction: string | null = null;
       let reasoningOnlyRetryInstruction: string | null = null;
       let emptyResponseRetryInstruction: string | null = null;
+      let toolUnavailableFalseBlockerRetryInstruction: string | null = null;
       const ackExecutionFastPathInstruction = resolveAckExecutionFastPathInstruction({
         provider,
         modelId,
@@ -799,6 +806,7 @@ export async function runEmbeddedPiAgent(
             planningOnlyRetryInstruction,
             reasoningOnlyRetryInstruction,
             emptyResponseRetryInstruction,
+            toolUnavailableFalseBlockerRetryInstruction,
           ].filter(
             (value): value is string => typeof value === "string" && value.trim().length > 0,
           );
@@ -1898,6 +1906,31 @@ export async function runEmbeddedPiAgent(
             timedOut,
             attempt,
           });
+          const nextToolUnavailableFalseBlockerRetryInstruction =
+            resolveToolUnavailableFalseBlockerRetryInstruction({
+              provider: activeErrorContext.provider,
+              modelId: activeErrorContext.model,
+              executionContract,
+              prompt: params.prompt,
+              aborted,
+              timedOut,
+              attempt,
+            });
+          if (
+            !nextPlanningOnlyRetryInstruction &&
+            nextToolUnavailableFalseBlockerRetryInstruction &&
+            toolUnavailableFalseBlockerRetryAttempts < maxToolUnavailableFalseBlockerRetryAttempts
+          ) {
+            toolUnavailableFalseBlockerRetryAttempts += 1;
+            toolUnavailableFalseBlockerRetryInstruction =
+              nextToolUnavailableFalseBlockerRetryInstruction;
+            log.warn(
+              `false tool-unavailable blocker detected: runId=${params.runId} sessionId=${params.sessionId} ` +
+                `provider=${activeErrorContext.provider}/${activeErrorContext.model} contract=${executionContract} — retrying ` +
+                `${toolUnavailableFalseBlockerRetryAttempts}/${maxToolUnavailableFalseBlockerRetryAttempts} with tool-use steer`,
+            );
+            continue;
+          }
           if (
             nextPlanningOnlyRetryInstruction &&
             planningOnlyRetryAttempts < maxPlanningOnlyRetryAttempts
@@ -1938,6 +1971,7 @@ export async function runEmbeddedPiAgent(
           }
           if (
             !nextPlanningOnlyRetryInstruction &&
+            !nextToolUnavailableFalseBlockerRetryInstruction &&
             nextReasoningOnlyRetryInstruction &&
             reasoningOnlyRetryAttempts < maxReasoningOnlyRetryAttempts
           ) {
@@ -1956,6 +1990,7 @@ export async function runEmbeddedPiAgent(
             reasoningOnlyRetryAttempts >= maxReasoningOnlyRetryAttempts;
           if (
             !nextPlanningOnlyRetryInstruction &&
+            !nextToolUnavailableFalseBlockerRetryInstruction &&
             !nextReasoningOnlyRetryInstruction &&
             nextEmptyResponseRetryInstruction &&
             emptyResponseRetryAttempts < maxEmptyResponseRetryAttempts
@@ -1981,9 +2016,13 @@ export async function runEmbeddedPiAgent(
                 `provider=${activeErrorContext.provider}/${activeErrorContext.model} attempts=${reasoningOnlyRetryAttempts}/${maxReasoningOnlyRetryAttempts} — surfacing incomplete-turn error`,
             );
           }
-          if (!incompleteTurnText && nextPlanningOnlyRetryInstruction && strictAgenticActive) {
+          if (
+            !incompleteTurnText &&
+            (nextPlanningOnlyRetryInstruction || nextToolUnavailableFalseBlockerRetryInstruction) &&
+            strictAgenticActive
+          ) {
             log.warn(
-              `strict-agentic run exhausted planning-only retries: runId=${params.runId} sessionId=${params.sessionId} ` +
+              `strict-agentic run exhausted action-enforcement retries: runId=${params.runId} sessionId=${params.sessionId} ` +
                 `provider=${provider}/${modelId} configured=${configuredExecutionContract} — surfacing blocked state`,
             );
             // Criterion 4 of the GPT-5.4 parity gate requires every terminal
@@ -2007,7 +2046,9 @@ export async function runEmbeddedPiAgent(
             return {
               payloads: [
                 {
-                  text: STRICT_AGENTIC_BLOCKED_TEXT,
+                  text: nextToolUnavailableFalseBlockerRetryInstruction
+                    ? TOOL_UNAVAILABLE_FALSE_BLOCKER_BLOCKED_TEXT
+                    : STRICT_AGENTIC_BLOCKED_TEXT,
                   isError: true,
                 },
               ],
