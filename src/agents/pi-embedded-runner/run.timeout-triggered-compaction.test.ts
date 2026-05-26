@@ -241,6 +241,27 @@ describe("timeout-triggered compaction", () => {
     expect(result.payloads?.[0]?.text).not.toContain("agents.defaults.timeoutSeconds");
   });
 
+  it("surfaces idle-timeout errors even after a progress-only assistant message", async () => {
+    mockedRunEmbeddedAttempt.mockResolvedValueOnce(
+      makeAttemptResult({
+        timedOut: true,
+        idleTimedOut: true,
+        assistantTexts: ["I’ll check the actual task/session + ledger now."],
+        lastAssistant: {
+          stopReason: "toolUse",
+          usage: { input: 20000 },
+        } as never,
+      }),
+    );
+
+    const result = await runEmbeddedPiAgent(overflowBaseRunParams);
+
+    expect(mockedCompactDirect).not.toHaveBeenCalled();
+    expect(result.payloads).toHaveLength(1);
+    expect(result.payloads?.[0]?.isError).toBe(true);
+    expect(result.payloads?.[0]?.text).toContain("agents.defaults.llm.idleTimeoutSeconds");
+  });
+
   it("retries one silent idle timeout before surfacing an error", async () => {
     mockedRunEmbeddedAttempt
       .mockResolvedValueOnce(

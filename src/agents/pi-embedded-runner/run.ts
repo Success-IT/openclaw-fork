@@ -1818,10 +1818,13 @@ export async function runEmbeddedPiAgent(
             hadFailure: Boolean(attempt.lastToolError),
           });
 
-          // Timeout aborts can leave the run without any assistant payloads.
-          // Emit an explicit timeout error instead of silently completing, so
-          // callers do not lose the turn as an orphaned user message.
-          if (timedOut && !timedOutDuringCompaction && !payloadsWithToolMedia?.length) {
+          // Timeout aborts can leave the run without a final answer. A progress
+          // line before tool use is not enough to make the turn complete.
+          const shouldSurfaceTimeoutPayload =
+            timedOut &&
+            !timedOutDuringCompaction &&
+            (!payloadsWithToolMedia?.length || (idleTimedOut && !finalAssistantVisibleText));
+          if (shouldSurfaceTimeoutPayload) {
             const timeoutText = idleTimedOut
               ? "The model did not produce a response before the LLM idle timeout. " +
                 "Please try again, or increase `agents.defaults.llm.idleTimeoutSeconds` in your config (set to 0 to disable)."
