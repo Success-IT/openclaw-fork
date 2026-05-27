@@ -1,3 +1,6 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
 import type { DiscordActionConfig } from "openclaw/plugin-sdk/config-runtime";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -353,6 +356,58 @@ describe("handleDiscordMessagingAction", () => {
     const expectedMs = Date.parse("2026-01-15T10:00:00.000Z");
     expect(payload.messages[0].timestampMs).toBe(expectedMs);
     expect(payload.messages[0].timestampUtc).toBe(new Date(expectedMs).toISOString());
+  });
+
+  it("adds local cache paths to readMessages attachments when Discord CDN URLs expire", async () => {
+    const previousStateDir = process.env.OPENCLAW_STATE_DIR;
+    const stateDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-discord-cache-"));
+    const inboundDir = path.join(stateDir, "media", "inbound");
+    const cachedPath = path.join(inboundDir, "opaque-cache.xlsx");
+    const timestamp = "2026-01-15T10:00:00.000Z";
+    const buffer = Buffer.from("xlsx bytes");
+
+    try {
+      process.env.OPENCLAW_STATE_DIR = stateDir;
+      await fs.mkdir(inboundDir, { recursive: true });
+      await fs.writeFile(cachedPath, buffer);
+      const mtime = new Date(timestamp);
+      await fs.utimes(cachedPath, mtime, mtime);
+      readMessagesDiscord.mockResolvedValueOnce([
+        {
+          id: "1",
+          timestamp,
+          attachments: [
+            {
+              id: "att-1",
+              filename: "Inventory as at 31.03.2025.xlsx",
+              size: buffer.byteLength,
+              url: "https://cdn.discordapp.com/attachments/1/expired.xlsx?ex=expired",
+            },
+          ],
+        },
+      ] as never);
+
+      const result = await handleMessagingAction(
+        "readMessages",
+        { channelId: "C1" },
+        enableAllActions,
+      );
+      const payload = result.details as {
+        messages: Array<{ attachments?: Array<{ localPath?: string; mediaPath?: string }> }>;
+      };
+
+      expect(payload.messages[0].attachments?.[0]).toMatchObject({
+        localPath: cachedPath,
+        mediaPath: cachedPath,
+      });
+    } finally {
+      if (previousStateDir === undefined) {
+        delete process.env.OPENCLAW_STATE_DIR;
+      } else {
+        process.env.OPENCLAW_STATE_DIR = previousStateDir;
+      }
+      await fs.rm(stateDir, { recursive: true, force: true });
+    }
   });
 
   it("threads provided cfg into readMessages calls", async () => {

@@ -70,6 +70,7 @@ function expectSinglePngDownload(params: {
   filePathHint: string;
   expectedPath: string;
   placeholder: "<media:image>" | "<media:sticker>";
+  expectedOriginalFilename?: string;
 }) {
   expect(fetchRemoteMedia).toHaveBeenCalledTimes(1);
   const call = fetchRemoteMedia.mock.calls[0]?.[0] as {
@@ -89,7 +90,13 @@ function expectSinglePngDownload(params: {
   });
   expectDiscordCdnSsrFPolicy(call.ssrfPolicy);
   expect(saveMediaBuffer).toHaveBeenCalledTimes(1);
-  expect(saveMediaBuffer).toHaveBeenCalledWith(expect.any(Buffer), "image/png", "inbound", 512);
+  expect(saveMediaBuffer).toHaveBeenCalledWith(
+    expect.any(Buffer),
+    "image/png",
+    "inbound",
+    512,
+    ...(params.expectedOriginalFilename ? [params.expectedOriginalFilename] : []),
+  );
   expect(params.result).toEqual([
     {
       path: params.expectedPath,
@@ -228,6 +235,7 @@ describe("resolveForwardedMediaList", () => {
       filePathHint: attachment.filename,
       expectedPath: "/tmp/image.png",
       placeholder: "<media:image>",
+      expectedOriginalFilename: attachment.filename,
     });
   });
 
@@ -353,6 +361,7 @@ describe("resolveForwardedMediaList", () => {
       filePathHint: attachment.filename,
       expectedPath: "/tmp/ref-image.png",
       placeholder: "<media:image>",
+      expectedOriginalFilename: attachment.filename,
     });
   });
 

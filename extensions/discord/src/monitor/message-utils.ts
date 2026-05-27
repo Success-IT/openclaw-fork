@@ -397,6 +397,7 @@ async function appendResolvedMediaFromAttachments(params: {
         fetched.contentType ?? attachment.content_type,
         "inbound",
         params.maxBytes,
+        attachment.filename,
       );
       params.out.push({
         path: saved.path,

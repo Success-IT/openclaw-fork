@@ -1,4 +1,7 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
+import { extractOriginalFilename, getMediaDir } from "openclaw/plugin-sdk/media-runtime";
 import { resolveDefaultDiscordAccountId } from "../accounts.js";
 import { createDiscordRuntimeAccountContext } from "../client.js";
 import { readDiscordComponentSpec } from "../components.js";
@@ -44,6 +47,153 @@ import {
   type DiscordSendEmbeds,
 } from "../send.shared.js";
 import { resolveDiscordChannelId } from "../targets.js";
+
+type DiscordAttachmentRecord = Record<string, unknown>;
+
+type CachedDiscordAttachment = {
+  path: string;
+  score: number;
+  mtimeMs: number;
+  timestampDistanceMs: number;
+};
+
+function readAttachmentFilename(attachment: DiscordAttachmentRecord): string | undefined {
+  const filename = attachment.filename;
+  return typeof filename === "string" && filename.trim() ? filename.trim() : undefined;
+}
+
+function readAttachmentSize(attachment: DiscordAttachmentRecord): number | undefined {
+  const size = attachment.size;
+  return typeof size === "number" && Number.isFinite(size) && size >= 0 ? size : undefined;
+}
+
+function scoreCachedAttachment(params: {
+  cachedPath: string;
+  filename: string | undefined;
+  size: number | undefined;
+  fileSize: number;
+  mtimeMs: number;
+  timestampMs: number | undefined;
+}): CachedDiscordAttachment | null {
+  const originalFilename = extractOriginalFilename(params.cachedPath);
+  const hasOriginalFilename =
+    Boolean(params.filename) && originalFilename.toLowerCase() === params.filename?.toLowerCase();
+  const wantedExt = params.filename ? path.extname(params.filename).toLowerCase() : "";
+  const cachedExt = path.extname(params.cachedPath).toLowerCase();
+  const hasMatchingSize = params.size !== undefined && params.fileSize === params.size;
+  const hasMatchingExt = !wantedExt || wantedExt === cachedExt;
+
+  let score = 0;
+  if (hasOriginalFilename) {
+    score += 100;
+  }
+  if (hasMatchingSize) {
+    score += 20;
+  }
+  if (hasMatchingExt) {
+    score += 5;
+  }
+  if (!hasOriginalFilename && !(hasMatchingSize && hasMatchingExt)) {
+    return null;
+  }
+
+  return {
+    path: params.cachedPath,
+    score,
+    mtimeMs: params.mtimeMs,
+    timestampDistanceMs:
+      params.timestampMs === undefined
+        ? Number.POSITIVE_INFINITY
+        : Math.abs(params.mtimeMs - params.timestampMs),
+  };
+}
+
+async function findCachedInboundAttachment(params: {
+  attachment: DiscordAttachmentRecord;
+  timestampMs: number | undefined;
+}): Promise<string | undefined> {
+  const filename = readAttachmentFilename(params.attachment);
+  const size = readAttachmentSize(params.attachment);
+  if (!filename && size === undefined) {
+    return undefined;
+  }
+  const inboundDir = path.join(getMediaDir(), "inbound");
+  const entries = await fs.readdir(inboundDir, { withFileTypes: true }).catch(() => []);
+  const candidates: CachedDiscordAttachment[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isFile()) {
+      continue;
+    }
+    const cachedPath = path.join(inboundDir, entry.name);
+    const stat = await fs.lstat(cachedPath).catch(() => null);
+    if (!stat || !stat.isFile() || stat.isSymbolicLink()) {
+      continue;
+    }
+    const scored = scoreCachedAttachment({
+      cachedPath,
+      filename,
+      size,
+      fileSize: stat.size,
+      mtimeMs: stat.mtimeMs,
+      timestampMs: params.timestampMs,
+    });
+    if (scored) {
+      candidates.push(scored);
+    }
+  }
+
+  candidates.sort(
+    (left, right) =>
+      right.score - left.score ||
+      left.timestampDistanceMs - right.timestampDistanceMs ||
+      right.mtimeMs - left.mtimeMs,
+  );
+  return candidates[0]?.path;
+}
+
+async function enrichDiscordAttachment(
+  attachment: unknown,
+  timestampMs?: number,
+): Promise<unknown> {
+  if (!attachment || typeof attachment !== "object" || Array.isArray(attachment)) {
+    return attachment;
+  }
+  const record = attachment as DiscordAttachmentRecord;
+  if (
+    typeof record.localPath === "string" ||
+    typeof record.mediaPath === "string" ||
+    typeof record.path === "string"
+  ) {
+    return record;
+  }
+  const cachedPath = await findCachedInboundAttachment({ attachment: record, timestampMs });
+  if (!cachedPath) {
+    return record;
+  }
+  return {
+    ...record,
+    localPath: cachedPath,
+    mediaPath: cachedPath,
+  };
+}
+
+async function enrichDiscordMessageLocalAttachments(
+  message: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const attachments = message.attachments;
+  if (!Array.isArray(attachments) || attachments.length === 0) {
+    return message;
+  }
+  const rawTimestamp = typeof message.timestamp === "string" ? Date.parse(message.timestamp) : NaN;
+  const timestampMs = Number.isFinite(rawTimestamp) ? rawTimestamp : undefined;
+  return {
+    ...message,
+    attachments: await Promise.all(
+      attachments.map((attachment) => enrichDiscordAttachment(attachment, timestampMs)),
+    ),
+  };
+}
 
 export const discordMessagingActionRuntime = {
   createThreadDiscord,
@@ -155,14 +305,15 @@ export async function handleDiscordMessagingAction(
     ...(reactionRuntimeOptions ?? cfgOptions),
     ...extra,
   });
-  const normalizeMessage = (message: unknown) => {
+  const normalizeMessage = async (message: unknown) => {
     if (!message || typeof message !== "object") {
       return message;
     }
-    return withNormalizedTimestamp(
+    const normalized = withNormalizedTimestamp(
       message as Record<string, unknown>,
       (message as { timestamp?: unknown }).timestamp,
     );
+    return await enrichDiscordMessageLocalAttachments(normalized);
   };
   switch (action) {
     case "react": {
@@ -297,7 +448,7 @@ export async function handleDiscordMessagingAction(
         : await discordMessagingActionRuntime.fetchMessageDiscord(channelId, messageId, cfgOptions);
       return jsonResult({
         ok: true,
-        message: normalizeMessage(message),
+        message: await normalizeMessage(message),
         guildId,
         channelId,
         messageId,
@@ -322,7 +473,7 @@ export async function handleDiscordMessagingAction(
         : await discordMessagingActionRuntime.readMessagesDiscord(channelId, query, cfgOptions);
       return jsonResult({
         ok: true,
-        messages: messages.map((message) => normalizeMessage(message)),
+        messages: await Promise.all(messages.map((message) => normalizeMessage(message))),
       });
     }
     case "sendMessage": {
@@ -595,7 +746,10 @@ export async function handleDiscordMessagingAction(
             accountId,
           })
         : await discordMessagingActionRuntime.listPinsDiscord(channelId, cfgOptions);
-      return jsonResult({ ok: true, pins: pins.map((pin) => normalizeMessage(pin)) });
+      return jsonResult({
+        ok: true,
+        pins: await Promise.all(pins.map((pin) => normalizeMessage(pin))),
+      });
     }
     case "searchMessages": {
       if (!isActionEnabled("search")) {
@@ -641,8 +795,12 @@ export async function handleDiscordMessagingAction(
       const resultsRecord = results as Record<string, unknown>;
       const messages = resultsRecord.messages;
       const normalizedMessages = Array.isArray(messages)
-        ? messages.map((group) =>
-            Array.isArray(group) ? group.map((msg) => normalizeMessage(msg)) : group,
+        ? await Promise.all(
+            messages.map((group) =>
+              Array.isArray(group)
+                ? Promise.all(group.map((msg) => normalizeMessage(msg)))
+                : Promise.resolve(group),
+            ),
           )
         : messages;
       return jsonResult({
