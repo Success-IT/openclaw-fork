@@ -1,0 +1,35 @@
+{
+  "id": "peggi-workflows",
+  "name": "Peggi Workflows",
+  "description": "Deterministic LangGraph-backed workflow tools for Peggi bookkeeping.",
+  "contracts": {
+    "tools": [
+      "peggi_expense_entry",
+      "peggi_duplicate_gate",
+      "peggi_email_invoice_flow",
+      "peggi_month_end_review",
+      "peggi_books_status"
+    ]
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "peggiWorkspace": {
+        "type": "string"
+      },
+      "successbooksCli": {
+        "type": "string"
+      },
+      "taskChainGraphScript": {
+        "type": "string"
+      },
+      "checkpointDb": {
+        "type": "string"
+      },
+      "auditLogPath": {
+        "type": "string"
+      }
+    }
+  }
+}

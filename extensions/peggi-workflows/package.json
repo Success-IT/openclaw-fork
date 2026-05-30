@@ -1,0 +1,18 @@
+{
+  "name": "@openclaw/peggi-workflows",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./index.ts",
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.41"
+  },
+  "devDependencies": {
+    "openclaw": "file:../.."
+  },
+  "openclaw": {
+    "install": {
+      "npmSpec": "@openclaw/peggi-workflows"
+    }
+  }
+}
